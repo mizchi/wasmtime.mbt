@@ -16,11 +16,11 @@ check:
 
 # Run tests
 test:
-    moon test --target {{target}}
+    moon test --target {{target}} --release
 
 # Update snapshot tests
 test-update:
-    moon test --update --target {{target}}
+    moon test --update --target {{target}} --release
 
 # Run main
 run:

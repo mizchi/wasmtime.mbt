@@ -39,6 +39,9 @@ just run       # run main
 just info      # generate type definition files
 ```
 
+Note: `just test` uses `--release` to avoid crashes in debug builds when
+linking against the Wasmtime C API.
+
 ## Example
 
 ```mbt
