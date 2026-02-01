@@ -1,0 +1,7 @@
+import {
+  "mizchi/wasmtime" as @wasmtime,
+}
+
+options(
+  "is-main": true,
+)

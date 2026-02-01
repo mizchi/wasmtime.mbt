@@ -1,0 +1,4 @@
+#ifndef WASMTIME_VERSION_H
+#define WASMTIME_VERSION_H
+#define WASMTIME_VERSION "42.0.0"
+#endif

@@ -1,0 +1,23 @@
+import {
+  "moonbitlang/core/encoding/utf8" as @utf8,
+}
+
+options(
+  "supported-targets": [ "native" ],
+  "native-stub": [ "wasmtime_stub.c" ],
+  "pre-build": [
+    {
+      "input": "scripts/build-wasmtime.sh",
+      "output": "_build/wasmtime_build.stamp",
+      "command": "bash $input $output"
+    }
+  ],
+  link: {
+    "native": {
+      "cc-link-flags": "-Ldeps/wasmtime/target/release -lwasmtime"
+    }
+  },
+  targets: {
+    "ffi_native.mbt": [ "native" ],
+  },
+)

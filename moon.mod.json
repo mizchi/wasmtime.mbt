@@ -1,0 +1,17 @@
+{
+  "name": "mizchi/wasmtime",
+  "version": "0.1.0",
+  "deps": {},
+  "source": "src",
+  "preferred-target": "native",
+  "readme": "README.mbt.md",
+  "repository": "https://github.com/mizchi/wasmtime.mbt",
+  "license": "Apache-2.0",
+  "keywords": [
+    "wasmtime",
+    "wasm",
+    "ffi",
+    "native"
+  ],
+  "description": "Wasmtime C API bindings for MoonBit (native target)"
+}
