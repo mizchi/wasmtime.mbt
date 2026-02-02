@@ -7,6 +7,7 @@ if [[ -z "$output" ]]; then
   exit 1
 fi
 
+start_dir=$(pwd)
 root_dir=$(cd "$(dirname "$0")/../.." && pwd)
 
 if [[ "$output" != /* ]]; then
@@ -17,10 +18,20 @@ cd "$root_dir"
 
 git submodule update --init deps/wasmtime
 
+if [[ ! -f "$root_dir/deps/wasmtime/Cargo.toml" ]]; then
+  echo "missing deps/wasmtime/Cargo.toml (root: $root_dir)" >&2
+  exit 1
+fi
+
 cd deps/wasmtime
 cargo build -p wasmtime-c-api --release
 
 cd "$root_dir"
+
+if ! ls "$root_dir/deps/wasmtime/target/release/libwasmtime."* >/dev/null 2>&1; then
+  echo "missing libwasmtime.* in deps/wasmtime/target/release" >&2
+  exit 1
+fi
 
 version_header="src/wasmtime_version.h"
 version_line=$(grep -E '^#define WASMTIME_VERSION "' deps/wasmtime/crates/c-api/include/wasmtime.h | head -n 1)
@@ -39,5 +50,9 @@ EOF
 mkdir -p "$(dirname "$output")"
 {
   echo "wasmtime-c-api built"
+  echo "pre-build start cwd: $start_dir"
+  echo "pre-build root: $root_dir"
+  echo "wasmtime dir: $root_dir/deps/wasmtime"
+  echo "wasmtime lib dir: $root_dir/deps/wasmtime/target/release"
   date -u "+%Y-%m-%dT%H:%M:%SZ"
 } > "$output"

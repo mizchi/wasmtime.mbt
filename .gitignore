@@ -1,5 +1,6 @@
 .DS_Store
 _build/
+src/build-stamps/
 target/
 target
 .mooncakes/

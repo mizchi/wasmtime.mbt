@@ -26,6 +26,10 @@ test-update:
 run:
     moon run src/main --target {{target}}
 
+# Show pre-build log
+prebuild-log:
+    if [ -f src/build-stamps/wasmtime_build.stamp ]; then cat src/build-stamps/wasmtime_build.stamp; else echo "stamp not found; run 'moon build src/main'"; exit 1; fi
+
 # Generate type definition files
 info:
     moon info

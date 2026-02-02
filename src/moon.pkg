@@ -9,7 +9,7 @@ options(
   "pre-build": [
     {
       "input": "scripts/build-wasmtime.sh",
-      "output": "_build/wasmtime_build.stamp",
+      "output": "build-stamps/wasmtime_build.stamp",
       "command": "bash $input $output"
     }
   ],

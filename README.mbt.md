@@ -28,6 +28,38 @@ The pre-build step also generates `src/wasmtime_version.h` from
 `deps/wasmtime/crates/c-api/include/wasmtime.h` so the MoonBit API can expose
 the Wasmtime version without depending on the full C headers during compile.
 
+## Using as a dependency (.mooncakes)
+
+When this module is installed as a dependency under
+`.mooncakes/mizchi/wasmtime`, the pre-build hook in this repo is not executed
+automatically. If you need Wasmtime built from a consumer module, add a
+pre-build step there to call the script inside `.mooncakes`.
+
+Example `moon.pkg` in the consumer:
+
+```
+import {
+  "mizchi/wasmtime",
+}
+
+options(
+  "pre-build": [
+    {
+      "input": [
+        ".mooncakes/mizchi/wasmtime/src/scripts/build-wasmtime.sh"
+      ],
+      "output": [
+        "build-stamps/wasmtime_prebuild.stamp"
+      ],
+      "command": "mkdir -p build-stamps && bash .mooncakes/mizchi/wasmtime/src/scripts/build-wasmtime.sh .mooncakes/mizchi/wasmtime/src/build-stamps/wasmtime_build.stamp && date -u +%Y-%m-%dT%H:%M:%SZ > $output"
+    }
+  ],
+)
+```
+
+The build script writes a log at `src/build-stamps/wasmtime_build.stamp` so you
+can confirm the cwd and resolved paths.
+
 ## Quick Commands
 
 ```bash
@@ -37,6 +69,7 @@ just check     # type check
 just test      # run tests
 just run       # run main
 just info      # generate type definition files
+just prebuild-log # show pre-build log
 ```
 
 Note: `just test` uses `--release` to avoid crashes in debug builds when
