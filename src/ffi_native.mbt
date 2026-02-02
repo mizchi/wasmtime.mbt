@@ -39,6 +39,11 @@ pub type CallFuture
 pub type Linker
 
 ///|
+/// Opaque WASI config type from the C API.
+#external
+pub type WasiConfig
+
+///|
 /// Opaque Wasmtime module type from the C API.
 #external
 pub type Module
@@ -450,6 +455,154 @@ pub extern "C" fn wasi_job_join_bytes(
   result_out : Bytes,
   status_out : Bytes,
 ) -> Bool = "wasmtime_wasi_job_join"
+
+///|
+/// Convert WAT text to wasm bytes. Returns null on failure, error_out set.
+#borrow(wat, error_out)
+pub extern "C" fn wat2wasm_bytes(
+  wat : Bytes,
+  wat_len : Int,
+  error_out : Bytes,
+) -> Bytes = "wasmtime_wat2wasm_bytes"
+
+///|
+/// Compile a module from wasm bytes. Returns null on failure, error_out set.
+#borrow(engine, wasm, error_out)
+pub extern "C" fn module_new_bytes(
+  engine : Engine,
+  wasm : Bytes,
+  wasm_len : Int,
+  error_out : Bytes,
+) -> Module = "wasmtime_module_new_bytes"
+
+///|
+/// Delete a module.
+#owned(module_val)
+pub extern "C" fn module_delete(module_val : Module) -> Unit = "wasmtime_module_delete"
+
+///|
+/// Create a linker for an engine.
+#borrow(engine)
+pub extern "C" fn linker_new(engine : Engine) -> Linker = "wasmtime_linker_new"
+
+///|
+/// Delete a linker.
+#owned(linker)
+pub extern "C" fn linker_delete(linker : Linker) -> Unit = "wasmtime_linker_delete"
+
+///|
+/// Define WASI in a linker. Returns null on success.
+#borrow(linker)
+pub extern "C" fn linker_define_wasi(linker : Linker) -> WasmtimeError = "wasmtime_linker_define_wasi"
+
+///|
+/// Instantiate a module with a linker into bytes.
+#borrow(linker, context, module_val, instance_out, trap_out, error_out)
+pub extern "C" fn linker_instantiate_bytes(
+  linker : Linker,
+  context : Context,
+  module_val : Module,
+  instance_out : Bytes,
+  trap_out : Bytes,
+  error_out : Bytes,
+) -> Bool = "wasmtime_linker_instantiate_bytes"
+
+///|
+/// Lookup an exported function by name into a func buffer.
+#borrow(context, instance, name, func_out)
+pub extern "C" fn instance_export_get_func_bytes(
+  context : Context,
+  instance : Bytes,
+  name : Bytes,
+  name_len : Int,
+  func_out : Bytes,
+) -> Bool = "wasmtime_instance_export_get_func_bytes"
+
+///|
+/// Call a function synchronously using bytes-backed values.
+#borrow(context, func, args, results, trap_out, error_out)
+pub extern "C" fn func_call_bytes(
+  context : Context,
+  func : Bytes,
+  args : Bytes,
+  nargs : Int,
+  results : Bytes,
+  nresults : Int,
+  trap_out : Bytes,
+  error_out : Bytes,
+) -> Bool = "wasmtime_func_call_bytes"
+
+///|
+/// Create a WASI config.
+pub extern "C" fn wasi_config_new() -> WasiConfig = "wasi_config_new"
+
+///|
+/// Delete a WASI config.
+#owned(config)
+pub extern "C" fn wasi_config_delete(config : WasiConfig) -> Unit = "wasi_config_delete"
+
+///|
+/// Set stdin file path for WASI.
+#borrow(config, path)
+pub extern "C" fn wasi_config_set_stdin_file_bytes(
+  config : WasiConfig,
+  path : Bytes,
+  path_len : Int,
+) -> Bool = "wasi_config_set_stdin_file_bytes"
+
+///|
+/// Set stdout file path for WASI.
+#borrow(config, path)
+pub extern "C" fn wasi_config_set_stdout_file_bytes(
+  config : WasiConfig,
+  path : Bytes,
+  path_len : Int,
+) -> Bool = "wasi_config_set_stdout_file_bytes"
+
+///|
+/// Set stderr file path for WASI.
+#borrow(config, path)
+pub extern "C" fn wasi_config_set_stderr_file_bytes(
+  config : WasiConfig,
+  path : Bytes,
+  path_len : Int,
+) -> Bool = "wasi_config_set_stderr_file_bytes"
+
+///|
+/// Inherit stdin from host.
+#borrow(config)
+pub extern "C" fn wasi_config_inherit_stdin(config : WasiConfig) -> Unit = "wasi_config_inherit_stdin"
+
+///|
+/// Inherit stdout from host.
+#borrow(config)
+pub extern "C" fn wasi_config_inherit_stdout(config : WasiConfig) -> Unit = "wasi_config_inherit_stdout"
+
+///|
+/// Inherit stderr from host.
+#borrow(config)
+pub extern "C" fn wasi_config_inherit_stderr(config : WasiConfig) -> Unit = "wasi_config_inherit_stderr"
+
+///|
+/// Preopen a directory for WASI.
+#borrow(config, host_path, guest_path)
+pub extern "C" fn wasi_config_preopen_dir_bytes(
+  config : WasiConfig,
+  host_path : Bytes,
+  host_len : Int,
+  guest_path : Bytes,
+  guest_len : Int,
+  dir_perms : Int,
+  file_perms : Int,
+) -> Bool = "wasi_config_preopen_dir_bytes"
+
+///|
+/// Set WASI config on a context. Returns null on success.
+#borrow(context)
+pub extern "C" fn context_set_wasi(
+  context : Context,
+  config : WasiConfig,
+) -> WasmtimeError = "wasmtime_context_set_wasi"
 
 ///|
 /// Call a function asynchronously using bytes-backed values.

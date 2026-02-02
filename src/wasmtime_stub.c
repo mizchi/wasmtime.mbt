@@ -232,6 +232,11 @@ wasmtime_error_t *wasmtime_linker_instantiate(
 wasi_config_t *wasi_config_new(void);
 void wasi_config_delete(wasi_config_t *);
 bool wasi_config_set_stdin_file(wasi_config_t *, const char *);
+bool wasi_config_set_stdout_file(wasi_config_t *, const char *);
+bool wasi_config_set_stderr_file(wasi_config_t *, const char *);
+void wasi_config_inherit_stdout(wasi_config_t *);
+void wasi_config_inherit_stderr(wasi_config_t *);
+void wasi_config_inherit_stdin(wasi_config_t *);
 bool wasi_config_preopen_dir(
   wasi_config_t *,
   const char *,
@@ -373,6 +378,70 @@ void wasmtime_config_cranelift_flag_set_bytes(
   free(value_str);
 }
 
+bool wasi_config_set_stdin_file_bytes(
+  wasi_config_t *config,
+  const uint8_t *bytes,
+  int32_t len
+) {
+  char *cstr = wasmtime_mbt_copy_cstr(bytes, len);
+  if (len > 0 && cstr == NULL) {
+    return false;
+  }
+  bool ok = wasi_config_set_stdin_file(config, cstr);
+  free(cstr);
+  return ok;
+}
+
+bool wasi_config_set_stdout_file_bytes(
+  wasi_config_t *config,
+  const uint8_t *bytes,
+  int32_t len
+) {
+  char *cstr = wasmtime_mbt_copy_cstr(bytes, len);
+  if (len > 0 && cstr == NULL) {
+    return false;
+  }
+  bool ok = wasi_config_set_stdout_file(config, cstr);
+  free(cstr);
+  return ok;
+}
+
+bool wasi_config_set_stderr_file_bytes(
+  wasi_config_t *config,
+  const uint8_t *bytes,
+  int32_t len
+) {
+  char *cstr = wasmtime_mbt_copy_cstr(bytes, len);
+  if (len > 0 && cstr == NULL) {
+    return false;
+  }
+  bool ok = wasi_config_set_stderr_file(config, cstr);
+  free(cstr);
+  return ok;
+}
+
+bool wasi_config_preopen_dir_bytes(
+  wasi_config_t *config,
+  const uint8_t *host_path,
+  int32_t host_len,
+  const uint8_t *guest_path,
+  int32_t guest_len,
+  size_t dir_perms,
+  size_t file_perms
+) {
+  char *host_cstr = wasmtime_mbt_copy_cstr(host_path, host_len);
+  char *guest_cstr = wasmtime_mbt_copy_cstr(guest_path, guest_len);
+  if ((host_len > 0 && host_cstr == NULL) || (guest_len > 0 && guest_cstr == NULL)) {
+    free(host_cstr);
+    free(guest_cstr);
+    return false;
+  }
+  bool ok = wasi_config_preopen_dir(config, host_cstr, guest_cstr, dir_perms, file_perms);
+  free(host_cstr);
+  free(guest_cstr);
+  return ok;
+}
+
 wasmtime_store_t *wasmtime_store_new_default(wasm_engine_t *engine) {
   return wasmtime_store_new(engine, NULL, NULL);
 }
@@ -424,6 +493,171 @@ void wasm_trap_delete_ptr(const uint8_t *bytes) {
   if (trap != NULL) {
     wasm_trap_delete(trap);
   }
+}
+
+moonbit_bytes_t wasmtime_wat2wasm_bytes(
+  const uint8_t *wat,
+  int32_t wat_len,
+  uint8_t *error_out
+) {
+  wasm_byte_vec_t wasm = {0, NULL};
+  if (error_out != NULL) {
+    memset(error_out, 0, sizeof(void *));
+  }
+  if (wat == NULL || wat_len <= 0) {
+    return NULL;
+  }
+  wasmtime_error_t *err = wasmtime_wat2wasm((const char *)wat, (size_t)wat_len, &wasm);
+  if (err != NULL) {
+    if (error_out != NULL) {
+      moonbit_ptr_write_raw(error_out, err);
+    } else {
+      wasmtime_error_delete(err);
+    }
+    return NULL;
+  }
+  moonbit_bytes_t bytes = moonbit_make_bytes((int32_t)wasm.size, 0);
+  if (bytes == NULL) {
+    wasm_byte_vec_delete(&wasm);
+    return NULL;
+  }
+  memcpy(bytes, wasm.data, wasm.size);
+  wasm_byte_vec_delete(&wasm);
+  return bytes;
+}
+
+wasmtime_module_t *wasmtime_module_new_bytes(
+  wasm_engine_t *engine,
+  const uint8_t *wasm,
+  int32_t wasm_len,
+  uint8_t *error_out
+) {
+  if (error_out != NULL) {
+    memset(error_out, 0, sizeof(void *));
+  }
+  if (engine == NULL || wasm == NULL || wasm_len <= 0) {
+    return NULL;
+  }
+  wasmtime_module_t *module = NULL;
+  wasmtime_error_t *err = wasmtime_module_new(engine, wasm, (size_t)wasm_len, &module);
+  if (err != NULL) {
+    if (error_out != NULL) {
+      moonbit_ptr_write_raw(error_out, err);
+    } else {
+      wasmtime_error_delete(err);
+    }
+    return NULL;
+  }
+  return module;
+}
+
+bool wasmtime_linker_instantiate_bytes(
+  const wasmtime_linker_t *linker,
+  wasmtime_context_t *context,
+  const wasmtime_module_t *module,
+  uint8_t *instance_bytes,
+  uint8_t *trap_out,
+  uint8_t *error_out
+) {
+  wasm_trap_t **trap_ptr = NULL;
+  if (trap_out != NULL) {
+    memset(trap_out, 0, sizeof(void *));
+    trap_ptr = (wasm_trap_t **)trap_out;
+  }
+  if (error_out != NULL) {
+    memset(error_out, 0, sizeof(void *));
+  }
+  if (instance_bytes == NULL) {
+    return false;
+  }
+  wasmtime_instance_t *instance = (wasmtime_instance_t *)instance_bytes;
+  wasmtime_error_t *err = wasmtime_linker_instantiate(linker, context, module, instance, trap_ptr);
+  if (err != NULL) {
+    if (error_out != NULL) {
+      moonbit_ptr_write_raw(error_out, err);
+    } else {
+      wasmtime_error_delete(err);
+    }
+    return false;
+  }
+  return true;
+}
+
+bool wasmtime_instance_export_get_func_bytes(
+  wasmtime_context_t *context,
+  const uint8_t *instance_bytes,
+  const uint8_t *name,
+  int32_t name_len,
+  uint8_t *func_out
+) {
+  if (instance_bytes == NULL || name == NULL || name_len <= 0 || func_out == NULL) {
+    return false;
+  }
+  wasmtime_extern_t item;
+  const wasmtime_instance_t *instance = (const wasmtime_instance_t *)instance_bytes;
+  if (!wasmtime_instance_export_get(
+        context,
+        instance,
+        (const char *)name,
+        (size_t)name_len,
+        &item
+      )) {
+    return false;
+  }
+  if (item.kind != WASMTIME_EXTERN_FUNC) {
+    wasmtime_extern_delete(&item);
+    return false;
+  }
+  memcpy(func_out, &item.of.func, sizeof(wasmtime_func_t));
+  wasmtime_extern_delete(&item);
+  return true;
+}
+
+bool wasmtime_func_call_bytes(
+  wasmtime_context_t *context,
+  const uint8_t *func_bytes,
+  const uint8_t *args_bytes,
+  int32_t nargs,
+  uint8_t *results_bytes,
+  int32_t nresults,
+  uint8_t *trap_out,
+  uint8_t *error_out
+) {
+  const wasmtime_func_t *func = (const wasmtime_func_t *)func_bytes;
+  const wasmtime_val_t *args = (const wasmtime_val_t *)args_bytes;
+  wasmtime_val_t *results = (wasmtime_val_t *)results_bytes;
+  wasm_trap_t **trap_ptr = NULL;
+  if (nargs == 0) {
+    args = NULL;
+  }
+  if (nresults == 0) {
+    results = NULL;
+  }
+  if (trap_out != NULL) {
+    memset(trap_out, 0, sizeof(void *));
+    trap_ptr = (wasm_trap_t **)trap_out;
+  }
+  if (error_out != NULL) {
+    memset(error_out, 0, sizeof(void *));
+  }
+  wasmtime_error_t *err = wasmtime_func_call(
+    context,
+    func,
+    args,
+    (size_t)nargs,
+    results,
+    (size_t)nresults,
+    trap_ptr
+  );
+  if (err != NULL) {
+    if (error_out != NULL) {
+      moonbit_ptr_write_raw(error_out, err);
+    } else {
+      wasmtime_error_delete(err);
+    }
+    return false;
+  }
+  return true;
 }
 
 int32_t wasmtime_val_sizeof(void) {
