@@ -297,6 +297,22 @@ wasmtime_store_delete(store)
 engine_delete(engine)
 ```
 
+Create a WASI-enabled store/context/linker with a preopened directory.
+
+```mbt nocheck
+let engine = engine_new()
+let (store, context, linker) = wasi_context_linker_with_preopen_or_raise(
+  engine,
+  "src/testdata",
+  guest_path=".",
+  dir_perms=WASI_DIR_PERMS_READ,
+  file_perms=WASI_FILE_PERMS_READ,
+)
+linker_delete(linker)
+wasmtime_store_delete(store)
+engine_delete(engine)
+```
+
 ## WASI preopen dir + path_open (POC)
 
 Open a file via `path_open` from a preopened directory and read it.

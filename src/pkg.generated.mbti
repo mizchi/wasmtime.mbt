@@ -84,6 +84,8 @@ pub fn call_future_thread_spawn_or_raise(CallFuture, poll_sleep_us? : Int) -> UI
 
 pub fn call_future_thread_spawn_result(CallFuture, poll_sleep_us? : Int) -> Result[UInt64, Error]
 
+pub fn clock_now_ns() -> UInt64
+
 pub fn config_async_stack_size_set(Config, UInt64) -> Unit
 
 pub fn config_cache_config_load(Config, String) -> WasmtimeError
@@ -401,6 +403,8 @@ pub fn wasi_config_set_stdout_file_bytes(WasiConfig, Bytes, Int) -> Bool
 pub fn wasi_config_set_stdout_file_or_raise(WasiConfig, String) -> Unit raise
 
 pub fn wasi_context_linker_new_or_raise(Engine, WasiConfig) -> (WasmtimeStore, Context, Linker) raise
+
+pub fn wasi_context_linker_with_preopen_or_raise(Engine, String, guest_path? : String, dir_perms? : Int, file_perms? : Int) -> (WasmtimeStore, Context, Linker) raise
 
 pub fn wasi_context_linker_with_stdio_files_or_raise(Engine, stdin_path? : String, stdout_path? : String, stderr_path? : String) -> (WasmtimeStore, Context, Linker) raise
 

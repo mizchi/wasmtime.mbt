@@ -87,6 +87,44 @@ fn main {
 }
 ```
 
+## Recommended (Plan B): sync WASI with module reuse
+
+Prefer the linker/module path when you need richer WASI I/O or want to reuse
+compiled modules.
+
+```mbt
+let engine = @wasmtime.engine_new()
+let (store, context, linker) = @wasmtime.wasi_context_linker_with_preopen_or_raise(
+  engine,
+  "src/testdata",
+  guest_path=".",
+)
+let wat = #|(module (func (export "run") (result i32) i32.const 7))
+let module_val = @wasmtime.module_new_from_wat_or_raise(engine, wat)
+let instance = @wasmtime.linker_instantiate_or_raise(linker, context, module_val)
+let func = @wasmtime.instance_export_func_or_raise(context, instance, "run")
+let args = @wasmtime.make_val_buffer(0)
+let results = @wasmtime.make_val_buffer(1)
+let trap_ptr = @wasmtime.make_ptr_buffer()
+let err_ptr = @wasmtime.make_ptr_buffer()
+let call_res = @wasmtime.func_call_sync_result_autoclean(
+  context,
+  func,
+  args,
+  results,
+  trap_ptr,
+  err_ptr,
+)
+match call_res {
+  Ok(()) => { () }
+  Err(err) => raise err
+}
+@wasmtime.module_delete(module_val)
+@wasmtime.linker_delete(linker)
+@wasmtime.wasmtime_store_delete(store)
+@wasmtime.engine_delete(engine)
+```
+
 ## Async Result Example (native)
 
 ```mbt

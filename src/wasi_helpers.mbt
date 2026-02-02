@@ -144,3 +144,23 @@ pub fn wasi_context_linker_with_stdio_files_or_raise(
   }
   wasi_context_linker_new_or_raise(engine, wasi)
 }
+
+///|
+/// Create a WASI-enabled store/context/linker with a preopened directory.
+pub fn wasi_context_linker_with_preopen_or_raise(
+  engine : Engine,
+  host_path : String,
+  guest_path? : String = ".",
+  dir_perms? : WasiDirPerms = WASI_DIR_PERMS_READ,
+  file_perms? : WasiFilePerms = WASI_FILE_PERMS_READ,
+) -> (WasmtimeStore, Context, Linker) raise {
+  let wasi = wasi_config_new_or_raise()
+  wasi_config_preopen_dir_or_raise(
+    wasi,
+    host_path,
+    guest_path=guest_path,
+    dir_perms=dir_perms,
+    file_perms=file_perms,
+  )
+  wasi_context_linker_new_or_raise(engine, wasi)
+}

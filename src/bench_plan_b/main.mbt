@@ -28,40 +28,18 @@ fn bench_time(label : String, iters : Int, f : () -> Bool) -> Bool {
 
 ///|
 fn sync_wasi_call_result(engine : @wasmtime.Engine, wat : String) -> Result[Int, Error] {
-  let store = @wasmtime.wasmtime_store_new(engine)
-  let context = @wasmtime.wasmtime_store_context(store)
-  let wasi = @wasmtime.wasi_config_new_or_raise()
-  let preopen_ok = try? @wasmtime.wasi_config_preopen_dir_or_raise(
-    wasi,
-    "src/testdata",
-    guest_path=".",
-    dir_perms=@wasmtime.WASI_DIR_PERMS_READ,
-    file_perms=@wasmtime.WASI_FILE_PERMS_READ,
-  )
-  match preopen_ok {
-    Ok(_) => ()
-    Err(err) => {
-      @wasmtime.wasmtime_store_delete(store)
-      return Err(err)
+  let (store, context, linker) =
+    try @wasmtime.wasi_context_linker_with_preopen_or_raise(
+      engine,
+      "src/testdata",
+      guest_path=".",
+      dir_perms=@wasmtime.WASI_DIR_PERMS_READ,
+      file_perms=@wasmtime.WASI_FILE_PERMS_READ,
+    ) catch {
+      err => return Err(err)
+    } noraise {
+      value => value
     }
-  }
-  let set_wasi_ok = try? @wasmtime.context_set_wasi_or_raise(context, wasi)
-  match set_wasi_ok {
-    Ok(_) => ()
-    Err(err) => {
-      @wasmtime.wasmtime_store_delete(store)
-      return Err(err)
-    }
-  }
-  let linker = @wasmtime.linker_new(engine)
-  match @wasmtime.linker_define_wasi_result(linker) {
-    Ok(_) => ()
-    Err(err) => {
-      @wasmtime.linker_delete(linker)
-      @wasmtime.wasmtime_store_delete(store)
-      return Err(err)
-    }
-  }
   let module_val =
     match @wasmtime.module_new_from_wat_result(engine, wat) {
       Ok(val) => val
@@ -119,40 +97,18 @@ fn sync_wasi_call_reuse_module_result(
   engine : @wasmtime.Engine,
   module_val : @wasmtime.Module,
 ) -> Result[Int, Error] {
-  let store = @wasmtime.wasmtime_store_new(engine)
-  let context = @wasmtime.wasmtime_store_context(store)
-  let wasi = @wasmtime.wasi_config_new_or_raise()
-  let preopen_ok = try? @wasmtime.wasi_config_preopen_dir_or_raise(
-    wasi,
-    "src/testdata",
-    guest_path=".",
-    dir_perms=@wasmtime.WASI_DIR_PERMS_READ,
-    file_perms=@wasmtime.WASI_FILE_PERMS_READ,
-  )
-  match preopen_ok {
-    Ok(_) => ()
-    Err(err) => {
-      @wasmtime.wasmtime_store_delete(store)
-      return Err(err)
+  let (store, context, linker) =
+    try @wasmtime.wasi_context_linker_with_preopen_or_raise(
+      engine,
+      "src/testdata",
+      guest_path=".",
+      dir_perms=@wasmtime.WASI_DIR_PERMS_READ,
+      file_perms=@wasmtime.WASI_FILE_PERMS_READ,
+    ) catch {
+      err => return Err(err)
+    } noraise {
+      value => value
     }
-  }
-  let set_wasi_ok = try? @wasmtime.context_set_wasi_or_raise(context, wasi)
-  match set_wasi_ok {
-    Ok(_) => ()
-    Err(err) => {
-      @wasmtime.wasmtime_store_delete(store)
-      return Err(err)
-    }
-  }
-  let linker = @wasmtime.linker_new(engine)
-  match @wasmtime.linker_define_wasi_result(linker) {
-    Ok(_) => ()
-    Err(err) => {
-      @wasmtime.linker_delete(linker)
-      @wasmtime.wasmtime_store_delete(store)
-      return Err(err)
-    }
-  }
   let instance =
     match @wasmtime.linker_instantiate_result(linker, context, module_val) {
       Ok(inst) => inst

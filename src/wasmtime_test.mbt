@@ -175,19 +175,13 @@ test "wasi_sync_call_preopen_file" {
     #|    i32.const 4
     #|    i32.load))
   let engine = engine_new()
-  let store = wasmtime_store_new(engine)
-  let context = wasmtime_store_context(store)
-  let wasi = wasi_config_new_or_raise()
-  wasi_config_preopen_dir_or_raise(
-    wasi,
+  let (store, context, linker) = wasi_context_linker_with_preopen_or_raise(
+    engine,
     "src/testdata",
     guest_path=".",
     dir_perms=WASI_DIR_PERMS_READ,
     file_perms=WASI_FILE_PERMS_READ,
   )
-  context_set_wasi_or_raise(context, wasi)
-  let linker = linker_new(engine)
-  linker_define_wasi_or_raise(linker)
   let module_val = module_new_from_wat_or_raise(engine, wat)
   let instance = linker_instantiate_or_raise(linker, context, module_val)
   let func = instance_export_func_or_raise(context, instance, "run")
