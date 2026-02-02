@@ -99,3 +99,27 @@ pub fn context_set_wasi_or_raise(
     fail("context_set_wasi failed")
   }
 }
+
+///|
+/// Create a WASI-enabled store/context pair.
+pub fn wasi_context_new_or_raise(
+  engine : Engine,
+  config : WasiConfig,
+) -> (WasmtimeStore, Context) raise {
+  let store = wasmtime_store_new(engine)
+  let context = wasmtime_store_context(store)
+  context_set_wasi_or_raise(context, config)
+  (store, context)
+}
+
+///|
+/// Create a WASI-enabled store/context and linker.
+pub fn wasi_context_linker_new_or_raise(
+  engine : Engine,
+  config : WasiConfig,
+) -> (WasmtimeStore, Context, Linker) raise {
+  let (store, context) = wasi_context_new_or_raise(engine, config)
+  let linker = linker_new(engine)
+  linker_define_wasi_or_raise(linker)
+  (store, context, linker)
+}

@@ -465,6 +465,13 @@ pub extern "C" fn wat2wasm_bytes(
   error_out : Bytes,
 ) -> Bytes = "wasmtime_wat2wasm_bytes"
 
+#borrow(path, error_out)
+pub extern "C" fn read_file_bytes(
+  path : Bytes,
+  path_len : Int,
+  error_out : Bytes,
+) -> Bytes = "moonbit_read_file_bytes"
+
 ///|
 /// Compile a module from wasm bytes. Returns null on failure, error_out set.
 #borrow(engine, wasm, error_out)

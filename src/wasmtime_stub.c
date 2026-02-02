@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <limits.h>
 #if !defined(_WIN32)
 #include <pthread.h>
 #include <sched.h>
@@ -479,6 +481,104 @@ void moonbit_ptr_clear(uint8_t *bytes) {
     return;
   }
   memset(bytes, 0, sizeof(void *));
+}
+
+moonbit_bytes_t moonbit_read_file_bytes(
+  const uint8_t *path,
+  int32_t path_len,
+  uint8_t *error_out
+) {
+  if (error_out != NULL) {
+    memset(error_out, 0, sizeof(void *));
+  }
+  char *cstr = wasmtime_mbt_copy_cstr(path, path_len);
+  if (path_len > 0 && cstr == NULL) {
+    wasmtime_error_t *err = wasmtime_error_new("read_file: out of memory");
+    if (error_out != NULL) {
+      moonbit_ptr_write_raw(error_out, err);
+    } else {
+      wasmtime_error_delete(err);
+    }
+    return NULL;
+  }
+  if (cstr == NULL) {
+    wasmtime_error_t *err = wasmtime_error_new("read_file: empty path");
+    if (error_out != NULL) {
+      moonbit_ptr_write_raw(error_out, err);
+    } else {
+      wasmtime_error_delete(err);
+    }
+    return NULL;
+  }
+  FILE *fp = fopen(cstr, "rb");
+  free(cstr);
+  if (fp == NULL) {
+    wasmtime_error_t *err = wasmtime_error_new("read_file: open failed");
+    if (error_out != NULL) {
+      moonbit_ptr_write_raw(error_out, err);
+    } else {
+      wasmtime_error_delete(err);
+    }
+    return NULL;
+  }
+  if (fseek(fp, 0, SEEK_END) != 0) {
+    fclose(fp);
+    wasmtime_error_t *err = wasmtime_error_new("read_file: seek failed");
+    if (error_out != NULL) {
+      moonbit_ptr_write_raw(error_out, err);
+    } else {
+      wasmtime_error_delete(err);
+    }
+    return NULL;
+  }
+  long size_long = ftell(fp);
+  if (size_long < 0 || size_long > INT32_MAX) {
+    fclose(fp);
+    wasmtime_error_t *err = wasmtime_error_new("read_file: size too large");
+    if (error_out != NULL) {
+      moonbit_ptr_write_raw(error_out, err);
+    } else {
+      wasmtime_error_delete(err);
+    }
+    return NULL;
+  }
+  if (fseek(fp, 0, SEEK_SET) != 0) {
+    fclose(fp);
+    wasmtime_error_t *err = wasmtime_error_new("read_file: seek failed");
+    if (error_out != NULL) {
+      moonbit_ptr_write_raw(error_out, err);
+    } else {
+      wasmtime_error_delete(err);
+    }
+    return NULL;
+  }
+  int32_t size = (int32_t)size_long;
+  moonbit_bytes_t bytes = moonbit_make_bytes(size, 0);
+  if (size > 0 && bytes == NULL) {
+    fclose(fp);
+    wasmtime_error_t *err = wasmtime_error_new("read_file: alloc failed");
+    if (error_out != NULL) {
+      moonbit_ptr_write_raw(error_out, err);
+    } else {
+      wasmtime_error_delete(err);
+    }
+    return NULL;
+  }
+  if (size > 0) {
+    size_t read_size = fread(bytes, 1, (size_t)size, fp);
+    if (read_size != (size_t)size) {
+      fclose(fp);
+      wasmtime_error_t *err = wasmtime_error_new("read_file: read failed");
+      if (error_out != NULL) {
+        moonbit_ptr_write_raw(error_out, err);
+      } else {
+        wasmtime_error_delete(err);
+      }
+      return NULL;
+    }
+  }
+  fclose(fp);
+  return bytes;
 }
 
 void wasmtime_error_delete_ptr(const uint8_t *bytes) {
