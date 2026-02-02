@@ -87,6 +87,13 @@ fn main {
 }
 ```
 
+## Decision Log
+
+- 2026-02-02: Adopted Plan B (module/linker/WASI helpers) as the primary path.
+  - Reason: better extensibility for WASI I/O/imports and lower steady-state cost
+    when reusing compiled modules.
+  - Plan A remains as a minimal threaded job POC.
+
 ## Recommended (Plan B): sync WASI with module reuse
 
 Prefer the linker/module path when you need richer WASI I/O or want to reuse
