@@ -23,8 +23,8 @@ if [[ -f "$wasmtime_rev_file" ]]; then
   wasmtime_rev=$(tr -d ' \t\r\n' < "$wasmtime_rev_file")
 fi
 
-if [[ -f "$root_dir/.gitmodules" ]]; then
-  git submodule update --init deps/wasmtime
+if [[ -f "$root_dir/.gitmodules" ]] && git -C "$root_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git -C "$root_dir" submodule update --init deps/wasmtime
 fi
 
 if [[ ! -d "$root_dir/deps/wasmtime" ]]; then

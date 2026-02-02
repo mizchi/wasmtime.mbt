@@ -1,6 +1,6 @@
 {
   "name": "mizchi/wasmtime",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "deps": {},
   "source": "src",
   "exclude": [
