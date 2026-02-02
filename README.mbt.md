@@ -49,3 +49,34 @@ fn main {
   println(@wasmtime.version())
 }
 ```
+
+## Async Result Example (native)
+
+```mbt
+let (engine, store, context) = @wasmtime.async_context_new(4 * 1024 * 1024)
+let args = @wasmtime.make_val_buffer(0)
+let results = @wasmtime.make_val_buffer(0)
+let trap_ptr = @wasmtime.make_ptr_buffer()
+let err_ptr = @wasmtime.make_ptr_buffer()
+
+let params : Bytes = []
+let results_sig : Bytes = []
+let ty = @wasmtime.functype_new_from_valkinds_or_raise(params, results_sig)
+let cb_ptr = @wasmtime.func_noop_callback_ptr()
+let func_bytes = @wasmtime.func_buffer_new_with_ptr(context, ty, cb_ptr, 0, 0)
+
+let future_result =
+  @wasmtime.func_call_async_result_autoclean(context, func_bytes, args, results, trap_ptr, err_ptr)
+match future_result {
+  Ok(future) => {
+    while not(@wasmtime.call_future_poll(future)) { () }
+    @wasmtime.call_future_delete(future)
+  }
+  Err(_err) => {
+    // trap/error pointers are already deleted
+  }
+}
+// Error example: "func_call_async failed (error=true, trap=false)"
+@wasmtime.functype_delete(ty)
+@wasmtime.async_context_delete(engine, store)
+```
