@@ -1,5 +1,6 @@
 import {
   "mizchi/wasmtime" as @wasmtime,
+  "mizchi/wasmtime/wasi" as @wasi,
 }
 
 options(

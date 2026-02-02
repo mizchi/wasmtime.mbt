@@ -32,38 +32,6 @@ pub const VALKIND_I32 : Int = 0
 
 pub const VALKIND_I64 : Int = 1
 
-pub const WASI_DIR_PERMS_READ : Int = 1
-
-pub const WASI_DIR_PERMS_WRITE : Int = 2
-
-pub const WASI_FILE_PERMS_READ : Int = 1
-
-pub const WASI_FILE_PERMS_WRITE : Int = 2
-
-pub const WASM_JOB_BAD_RESULT : Int = 8
-
-pub const WASM_JOB_CALL_ERROR : Int = 7
-
-pub const WASM_JOB_EXPORT_NOT_FOUND : Int = 5
-
-pub const WASM_JOB_EXPORT_NOT_FUNC : Int = 6
-
-pub const WASM_JOB_INSTANTIATE_ERROR : Int = 3
-
-pub const WASM_JOB_MODULE_ERROR : Int = 2
-
-pub const WASM_JOB_OK : Int = 0
-
-pub const WASM_JOB_TRAP : Int = 4
-
-pub const WASM_JOB_WASI_CONFIG_ERROR : Int = 9
-
-pub const WASM_JOB_WASI_LINKER_ERROR : Int = 10
-
-pub const WASM_JOB_WASI_STDIN_ERROR : Int = 11
-
-pub const WASM_JOB_WAT_ERROR : Int = 1
-
 pub fn async_context_delete(Engine, WasmtimeStore) -> Unit
 
 pub fn async_context_new(UInt64) -> (Engine, WasmtimeStore, Context)
@@ -186,8 +154,6 @@ pub fn context_fuel_async_yield_interval(Context, UInt64) -> WasmtimeError
 
 pub fn context_set_wasi(Context, WasiConfig) -> WasmtimeError
 
-pub fn context_set_wasi_or_raise(Context, WasiConfig) -> Unit raise
-
 pub fn engine_delete(Engine) -> Unit
 
 pub fn engine_new() -> Engine
@@ -308,12 +274,6 @@ pub fn ptr_sizeof() -> Int
 
 pub fn read_file_bytes(Bytes, Int, Bytes) -> Bytes
 
-pub fn read_file_bytes_or_raise(String) -> Bytes raise
-
-pub fn read_file_bytes_result(String) -> Result[Bytes, Error]
-
-pub fn read_file_string_or_raise(String) -> String raise
-
 pub fn stack_creator_sizeof() -> Int
 
 pub fn store_delete(Store) -> Unit
@@ -378,65 +338,17 @@ pub fn wasi_config_inherit_stderr(WasiConfig) -> Unit
 
 pub fn wasi_config_inherit_stdin(WasiConfig) -> Unit
 
-pub fn wasi_config_inherit_stdio(WasiConfig) -> Unit
-
 pub fn wasi_config_inherit_stdout(WasiConfig) -> Unit
 
 pub fn wasi_config_new() -> WasiConfig
 
-pub fn wasi_config_new_or_raise() -> WasiConfig
-
 pub fn wasi_config_preopen_dir_bytes(WasiConfig, Bytes, Int, Bytes, Int, Int, Int) -> Bool
-
-pub fn wasi_config_preopen_dir_or_raise(WasiConfig, String, guest_path? : String, dir_perms? : Int, file_perms? : Int) -> Unit raise
 
 pub fn wasi_config_set_stderr_file_bytes(WasiConfig, Bytes, Int) -> Bool
 
-pub fn wasi_config_set_stderr_file_or_raise(WasiConfig, String) -> Unit raise
-
 pub fn wasi_config_set_stdin_file_bytes(WasiConfig, Bytes, Int) -> Bool
 
-pub fn wasi_config_set_stdin_file_or_raise(WasiConfig, String) -> Unit raise
-
 pub fn wasi_config_set_stdout_file_bytes(WasiConfig, Bytes, Int) -> Bool
-
-pub fn wasi_config_set_stdout_file_or_raise(WasiConfig, String) -> Unit raise
-
-pub fn wasi_context_linker_new_or_raise(Engine, WasiConfig) -> (WasmtimeStore, Context, Linker) raise
-
-pub fn wasi_context_linker_with_preopen_or_raise(Engine, String, guest_path? : String, dir_perms? : Int, file_perms? : Int) -> (WasmtimeStore, Context, Linker) raise
-
-pub fn wasi_context_linker_with_stdio_files_or_raise(Engine, stdin_path? : String, stdout_path? : String, stderr_path? : String) -> (WasmtimeStore, Context, Linker) raise
-
-pub fn wasi_context_new_or_raise(Engine, WasiConfig) -> (WasmtimeStore, Context) raise
-
-pub fn wasi_job_is_done(UInt64) -> Bool
-
-pub fn wasi_job_join_bytes(UInt64, Bytes, Bytes) -> Bool
-
-pub fn wasi_job_join_or_raise(UInt64) -> Int raise
-
-pub fn wasi_job_join_result(UInt64) -> Result[Int, Error]
-
-pub fn wasi_job_spawn_wat_bytes(Bytes, Int, Bytes, Int, Bytes, Int) -> UInt64
-
-pub fn wasi_job_spawn_wat_or_raise(String, String, String) -> UInt64 raise
-
-pub fn wasi_job_spawn_wat_result(String, String, String) -> Result[UInt64, Error]
-
-pub fn wasm_job_is_done(UInt64) -> Bool
-
-pub fn wasm_job_join_bytes(UInt64, Bytes, Bytes) -> Bool
-
-pub fn wasm_job_join_or_raise(UInt64) -> Int raise
-
-pub fn wasm_job_join_result(UInt64) -> Result[Int, Error]
-
-pub fn wasm_job_spawn_wat_bytes(Bytes, Int, Bytes, Int) -> UInt64
-
-pub fn wasm_job_spawn_wat_or_raise(String, String) -> UInt64 raise
-
-pub fn wasm_job_spawn_wat_result(String, String) -> Result[UInt64, Error]
 
 pub fn wasmtime_store_context(WasmtimeStore) -> Context
 
@@ -500,12 +412,6 @@ pub type ProfilingStrategy = Int
 pub type Strategy = Int
 
 pub type ValKind = Int
-
-pub type WasiDirPerms = Int
-
-pub type WasiFilePerms = Int
-
-pub type WasmJobStatus = Int
 
 // Traits
 

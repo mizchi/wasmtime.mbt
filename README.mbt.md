@@ -7,6 +7,7 @@ bridge that verifies native linking and exposes `version()` plus basic engine li
 
 - native target only
 - requires Wasmtime C API headers and library at build time
+ - packages: core (`mizchi/wasmtime`) and WASI helpers (`mizchi/wasmtime/wasi`)
 
 ## Build Requirements
 
@@ -92,7 +93,7 @@ fn main {
 - 2026-02-02: Adopted Plan B (module/linker/WASI helpers) as the primary path.
   - Reason: better extensibility for WASI I/O/imports and lower steady-state cost
     when reusing compiled modules.
-  - Plan A remains as a minimal threaded job POC.
+  - Plan A job helpers removed from core; keep core minimal.
 
 ## Recommended (Plan B): sync WASI with module reuse
 
@@ -100,8 +101,13 @@ Prefer the linker/module path when you need richer WASI I/O or want to reuse
 compiled modules.
 
 ```mbt
+import {
+  "mizchi/wasmtime" as @wasmtime,
+  "mizchi/wasmtime/wasi" as @wasi,
+}
+
 let engine = @wasmtime.engine_new()
-let (store, context, linker) = @wasmtime.wasi_context_linker_with_preopen_or_raise(
+let (store, context, linker) = @wasi.wasi_context_linker_with_preopen_or_raise(
   engine,
   "src/testdata",
   guest_path=".",

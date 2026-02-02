@@ -29,12 +29,10 @@ fn bench_time(label : String, iters : Int, f : () -> Bool) -> Bool {
 ///|
 fn sync_wasi_call_result(engine : @wasmtime.Engine, wat : String) -> Result[Int, Error] {
   let (store, context, linker) =
-    try @wasmtime.wasi_context_linker_with_preopen_or_raise(
+    try @wasi.wasi_context_linker_with_preopen_or_raise(
       engine,
       "src/testdata",
       guest_path=".",
-      dir_perms=@wasmtime.WASI_DIR_PERMS_READ,
-      file_perms=@wasmtime.WASI_FILE_PERMS_READ,
     ) catch {
       err => return Err(err)
     } noraise {
@@ -98,12 +96,10 @@ fn sync_wasi_call_reuse_module_result(
   module_val : @wasmtime.Module,
 ) -> Result[Int, Error] {
   let (store, context, linker) =
-    try @wasmtime.wasi_context_linker_with_preopen_or_raise(
+    try @wasi.wasi_context_linker_with_preopen_or_raise(
       engine,
       "src/testdata",
       guest_path=".",
-      dir_perms=@wasmtime.WASI_DIR_PERMS_READ,
-      file_perms=@wasmtime.WASI_FILE_PERMS_READ,
     ) catch {
       err => return Err(err)
     } noraise {

@@ -1,0 +1,65 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/wasmtime/wasi"
+
+import {
+  "mizchi/wasmtime",
+}
+
+// Values
+pub const WASI_DIR_PERMS_READ : Int = 1
+
+pub const WASI_DIR_PERMS_WRITE : Int = 2
+
+pub const WASI_FILE_PERMS_READ : Int = 1
+
+pub const WASI_FILE_PERMS_WRITE : Int = 2
+
+pub fn context_set_wasi_or_raise(@wasmtime.Context, @wasmtime.WasiConfig) -> Unit raise
+
+pub fn read_file_bytes_or_raise(String) -> Bytes raise
+
+pub fn read_file_bytes_result(String) -> Result[Bytes, Error]
+
+pub fn read_file_string_or_raise(String) -> String raise
+
+pub fn wasi_config_inherit_stdio(@wasmtime.WasiConfig) -> Unit
+
+pub fn wasi_config_new_or_raise() -> @wasmtime.WasiConfig
+
+pub fn wasi_config_preopen_dir_or_raise(@wasmtime.WasiConfig, String, guest_path? : String, dir_perms? : Int, file_perms? : Int) -> Unit raise
+
+pub fn wasi_config_set_stderr_file_or_raise(@wasmtime.WasiConfig, String) -> Unit raise
+
+pub fn wasi_config_set_stdin_file_or_raise(@wasmtime.WasiConfig, String) -> Unit raise
+
+pub fn wasi_config_set_stdout_file_or_raise(@wasmtime.WasiConfig, String) -> Unit raise
+
+pub fn wasi_context_linker_new_or_raise(@wasmtime.Engine, @wasmtime.WasiConfig) -> (@wasmtime.WasmtimeStore, @wasmtime.Context, @wasmtime.Linker) raise
+
+pub fn wasi_context_linker_with_preopen_or_raise(@wasmtime.Engine, String, guest_path? : String, dir_perms? : Int, file_perms? : Int) -> (@wasmtime.WasmtimeStore, @wasmtime.Context, @wasmtime.Linker) raise
+
+pub fn wasi_context_linker_with_stdio_files_or_raise(@wasmtime.Engine, stdin_path? : String, stdout_path? : String, stderr_path? : String) -> (@wasmtime.WasmtimeStore, @wasmtime.Context, @wasmtime.Linker) raise
+
+pub fn wasi_context_new_or_raise(@wasmtime.Engine, @wasmtime.WasiConfig) -> (@wasmtime.WasmtimeStore, @wasmtime.Context) raise
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+pub using @wasmtime {type Context}
+
+pub using @wasmtime {type Engine}
+
+pub using @wasmtime {type Linker}
+
+pub using @wasmtime {type WasiConfig}
+
+pub type WasiDirPerms = Int
+
+pub type WasiFilePerms = Int
+
+pub using @wasmtime {type WasmtimeStore}
+
+// Traits
+

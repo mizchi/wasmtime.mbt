@@ -1,10 +1,11 @@
 import {
   "mizchi/wasmtime" as @wasmtime,
+  "moonbitlang/core/encoding/utf8" as @utf8,
   "moonbitlang/core/builtin" as @builtin,
 }
 
 options(
-  "is-main": true,
+  "supported-targets": [ "native" ],
   link: {
     "native": {
       "cc-link-flags": "-Ldeps/wasmtime/target/release -lwasmtime -pthread"

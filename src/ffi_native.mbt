@@ -409,54 +409,6 @@ pub extern "C" fn call_future_thread_is_done(handle : UInt64) -> Bool = "wasmtim
 pub extern "C" fn call_future_thread_join(handle : UInt64) -> Bool = "wasmtime_call_future_thread_join"
 
 ///|
-/// Spawn a wasm job thread from WAT bytes. Returns 0 on failure.
-#borrow(wat, func)
-pub extern "C" fn wasm_job_spawn_wat_bytes(
-  wat : Bytes,
-  wat_len : Int,
-  func : Bytes,
-  func_len : Int,
-) -> UInt64 = "wasmtime_wasm_job_spawn_wat"
-
-///|
-/// Check whether a wasm job has finished.
-pub extern "C" fn wasm_job_is_done(handle : UInt64) -> Bool = "wasmtime_wasm_job_is_done"
-
-///|
-/// Join a wasm job and write result/status into bytes.
-#borrow(result_out, status_out)
-pub extern "C" fn wasm_job_join_bytes(
-  handle : UInt64,
-  result_out : Bytes,
-  status_out : Bytes,
-) -> Bool = "wasmtime_wasm_job_join"
-
-///|
-/// Spawn a WASI-backed wasm job thread from WAT bytes. Returns 0 on failure.
-#borrow(wat, func, stdin_path)
-pub extern "C" fn wasi_job_spawn_wat_bytes(
-  wat : Bytes,
-  wat_len : Int,
-  func : Bytes,
-  func_len : Int,
-  stdin_path : Bytes,
-  stdin_len : Int,
-) -> UInt64 = "wasmtime_wasi_job_spawn_wat"
-
-///|
-/// Check whether a WASI wasm job has finished.
-pub extern "C" fn wasi_job_is_done(handle : UInt64) -> Bool = "wasmtime_wasi_job_is_done"
-
-///|
-/// Join a WASI wasm job and write result/status into bytes.
-#borrow(result_out, status_out)
-pub extern "C" fn wasi_job_join_bytes(
-  handle : UInt64,
-  result_out : Bytes,
-  status_out : Bytes,
-) -> Bool = "wasmtime_wasi_job_join"
-
-///|
 /// Convert WAT text to wasm bytes. Returns null on failure, error_out set.
 #borrow(wat, error_out)
 pub extern "C" fn wat2wasm_bytes(

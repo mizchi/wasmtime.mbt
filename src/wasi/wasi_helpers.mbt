@@ -13,9 +13,17 @@ pub const WASI_FILE_PERMS_READ : WasiFilePerms = 1
 pub const WASI_FILE_PERMS_WRITE : WasiFilePerms = 2
 
 ///|
+/// Re-export core types for convenience.
+pub type WasiConfig = @wasmtime.WasiConfig
+pub type Engine = @wasmtime.Engine
+pub type Context = @wasmtime.Context
+pub type Linker = @wasmtime.Linker
+pub type WasmtimeStore = @wasmtime.WasmtimeStore
+
+///|
 /// Create a WASI config.
 pub fn wasi_config_new_or_raise() -> WasiConfig {
-  let config = wasi_config_new()
+  let config = @wasmtime.wasi_config_new()
   config
 }
 
@@ -26,7 +34,7 @@ pub fn wasi_config_set_stdin_file_or_raise(
   path : String,
 ) -> Unit raise {
   let bytes = @utf8.encode(path)
-  if not(wasi_config_set_stdin_file_bytes(config, bytes, bytes.length())) {
+  if not(@wasmtime.wasi_config_set_stdin_file_bytes(config, bytes, bytes.length())) {
     fail("wasi_config_set_stdin_file failed")
   }
 }
@@ -38,7 +46,7 @@ pub fn wasi_config_set_stdout_file_or_raise(
   path : String,
 ) -> Unit raise {
   let bytes = @utf8.encode(path)
-  if not(wasi_config_set_stdout_file_bytes(config, bytes, bytes.length())) {
+  if not(@wasmtime.wasi_config_set_stdout_file_bytes(config, bytes, bytes.length())) {
     fail("wasi_config_set_stdout_file failed")
   }
 }
@@ -50,7 +58,7 @@ pub fn wasi_config_set_stderr_file_or_raise(
   path : String,
 ) -> Unit raise {
   let bytes = @utf8.encode(path)
-  if not(wasi_config_set_stderr_file_bytes(config, bytes, bytes.length())) {
+  if not(@wasmtime.wasi_config_set_stderr_file_bytes(config, bytes, bytes.length())) {
     fail("wasi_config_set_stderr_file failed")
   }
 }
@@ -58,9 +66,9 @@ pub fn wasi_config_set_stderr_file_or_raise(
 ///|
 /// Inherit stdio from host process.
 pub fn wasi_config_inherit_stdio(config : WasiConfig) -> Unit {
-  wasi_config_inherit_stdin(config)
-  wasi_config_inherit_stdout(config)
-  wasi_config_inherit_stderr(config)
+  @wasmtime.wasi_config_inherit_stdin(config)
+  @wasmtime.wasi_config_inherit_stdout(config)
+  @wasmtime.wasi_config_inherit_stderr(config)
 }
 
 ///|
@@ -74,7 +82,7 @@ pub fn wasi_config_preopen_dir_or_raise(
 ) -> Unit raise {
   let host_bytes = @utf8.encode(host_path)
   let guest_bytes = @utf8.encode(guest_path)
-  if not(wasi_config_preopen_dir_bytes(
+  if not(@wasmtime.wasi_config_preopen_dir_bytes(
     config,
     host_bytes,
     host_bytes.length(),
@@ -93,9 +101,9 @@ pub fn context_set_wasi_or_raise(
   context : Context,
   config : WasiConfig,
 ) -> Unit raise {
-  let err = context_set_wasi(context, config)
-  if not(error_is_null(err)) {
-    error_delete(err)
+  let err = @wasmtime.context_set_wasi(context, config)
+  if not(@wasmtime.error_is_null(err)) {
+    @wasmtime.error_delete(err)
     fail("context_set_wasi failed")
   }
 }
@@ -106,8 +114,8 @@ pub fn wasi_context_new_or_raise(
   engine : Engine,
   config : WasiConfig,
 ) -> (WasmtimeStore, Context) raise {
-  let store = wasmtime_store_new(engine)
-  let context = wasmtime_store_context(store)
+  let store = @wasmtime.wasmtime_store_new(engine)
+  let context = @wasmtime.wasmtime_store_context(store)
   context_set_wasi_or_raise(context, config)
   (store, context)
 }
@@ -119,8 +127,8 @@ pub fn wasi_context_linker_new_or_raise(
   config : WasiConfig,
 ) -> (WasmtimeStore, Context, Linker) raise {
   let (store, context) = wasi_context_new_or_raise(engine, config)
-  let linker = linker_new(engine)
-  linker_define_wasi_or_raise(linker)
+  let linker = @wasmtime.linker_new(engine)
+  @wasmtime.linker_define_wasi_or_raise(linker)
   (store, context, linker)
 }
 
