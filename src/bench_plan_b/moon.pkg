@@ -1,0 +1,12 @@
+import {
+  "mizchi/wasmtime" as @wasmtime,
+}
+
+options(
+  "is-main": true,
+  link: {
+    "native": {
+      "cc-link-flags": "-Ldeps/wasmtime/target/release -lwasmtime -pthread"
+    }
+  },
+)
