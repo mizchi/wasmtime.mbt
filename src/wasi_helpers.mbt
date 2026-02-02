@@ -123,3 +123,24 @@ pub fn wasi_context_linker_new_or_raise(
   linker_define_wasi_or_raise(linker)
   (store, context, linker)
 }
+
+///|
+/// Create a WASI-enabled store/context/linker with stdio files.
+pub fn wasi_context_linker_with_stdio_files_or_raise(
+  engine : Engine,
+  stdin_path? : String = "",
+  stdout_path? : String = "",
+  stderr_path? : String = "",
+) -> (WasmtimeStore, Context, Linker) raise {
+  let wasi = wasi_config_new_or_raise()
+  if stdin_path.length() > 0 {
+    wasi_config_set_stdin_file_or_raise(wasi, stdin_path)
+  }
+  if stdout_path.length() > 0 {
+    wasi_config_set_stdout_file_or_raise(wasi, stdout_path)
+  }
+  if stderr_path.length() > 0 {
+    wasi_config_set_stderr_file_or_raise(wasi, stderr_path)
+  }
+  wasi_context_linker_new_or_raise(engine, wasi)
+}

@@ -255,10 +255,11 @@ test "wasi_sync_call_stdout_stderr_files" {
   let stdout_path = "src/testdata/wasm_job_stdout.txt"
   let stderr_path = "src/testdata/wasm_job_stderr.txt"
   let engine = engine_new()
-  let wasi = wasi_config_new_or_raise()
-  wasi_config_set_stdout_file_or_raise(wasi, stdout_path)
-  wasi_config_set_stderr_file_or_raise(wasi, stderr_path)
-  let (store, context, linker) = wasi_context_linker_new_or_raise(engine, wasi)
+  let (store, context, linker) = wasi_context_linker_with_stdio_files_or_raise(
+    engine,
+    stdout_path=stdout_path,
+    stderr_path=stderr_path,
+  )
   let module_val = module_new_from_wat_or_raise(engine, wat)
   let instance = linker_instantiate_or_raise(linker, context, module_val)
   let func = instance_export_func_or_raise(context, instance, "run")

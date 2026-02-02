@@ -283,6 +283,20 @@ wasmtime_store_delete(store)
 engine_delete(engine)
 ```
 
+Create a WASI-enabled store/context/linker with stdout/stderr files.
+
+```mbt nocheck
+let engine = engine_new()
+let (store, context, linker) = wasi_context_linker_with_stdio_files_or_raise(
+  engine,
+  stdout_path="src/testdata/wasm_job_stdout.txt",
+  stderr_path="src/testdata/wasm_job_stderr.txt",
+)
+linker_delete(linker)
+wasmtime_store_delete(store)
+engine_delete(engine)
+```
+
 ## WASI preopen dir + path_open (POC)
 
 Open a file via `path_open` from a preopened directory and read it.
