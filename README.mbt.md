@@ -18,6 +18,10 @@ The build hook:
 - initializes `deps/wasmtime` (git submodule)
 - runs `cargo build -p wasmtime-c-api --release`
 
+When `deps/wasmtime` is missing (e.g. installed via `.mooncakes`), the build
+script will clone Wasmtime from GitHub and checkout the pinned commit in
+`deps/wasmtime.rev` before building. Git is required in that case.
+
 The link flags are set in `src/moon.pkg`:
 
 ```text
