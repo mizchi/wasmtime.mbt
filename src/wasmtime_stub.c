@@ -7,11 +7,14 @@
 #include <string.h>
 #include <stdio.h>
 #include <limits.h>
+#include <time.h>
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 #if !defined(_WIN32)
 #include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
-#include <time.h>
 #endif
 
 typedef struct wasm_config_t wasm_config_t;
@@ -481,6 +484,28 @@ void moonbit_ptr_clear(uint8_t *bytes) {
     return;
   }
   memset(bytes, 0, sizeof(void *));
+}
+
+uint64_t moonbit_clock_now_ns(void) {
+#if defined(_WIN32)
+  LARGE_INTEGER freq;
+  LARGE_INTEGER counter;
+  if (!QueryPerformanceFrequency(&freq)) {
+    return 0;
+  }
+  if (!QueryPerformanceCounter(&counter)) {
+    return 0;
+  }
+  return (uint64_t)((counter.QuadPart * 1000000000ULL) / freq.QuadPart);
+#else
+  struct timespec ts;
+#if defined(CLOCK_MONOTONIC)
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+#else
+  clock_gettime(CLOCK_REALTIME, &ts);
+#endif
+  return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+#endif
 }
 
 moonbit_bytes_t moonbit_read_file_bytes(

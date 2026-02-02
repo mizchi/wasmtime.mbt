@@ -702,6 +702,10 @@ pub extern "C" fn config_cranelift_flag_set_bytes(
 pub extern "C" fn ptr_sizeof() -> Int = "moonbit_ptr_sizeof"
 
 ///|
+/// Monotonic clock in nanoseconds.
+pub extern "C" fn clock_now_ns() -> UInt64 = "moonbit_clock_now_ns"
+
+///|
 /// Read a pointer value as UInt64 from bytes.
 #borrow(bytes)
 pub extern "C" fn ptr_read_u64(bytes : Bytes) -> UInt64 = "moonbit_ptr_read_u64"
