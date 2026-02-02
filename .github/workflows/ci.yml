@@ -29,4 +29,6 @@ jobs:
       - name: Moon check
         run: moon check --deny-warn --target native
       - name: Moon test
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/deps/wasmtime/target/release
         run: moon test --target native --release
