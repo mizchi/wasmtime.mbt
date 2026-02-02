@@ -5,6 +5,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(_WIN32)
+#include <pthread.h>
+#include <sched.h>
+#include <stdatomic.h>
+#include <time.h>
+#endif
 
 typedef struct wasm_config_t wasm_config_t;
 typedef struct wasm_engine_t wasm_engine_t;
@@ -19,6 +25,7 @@ typedef struct wasmtime_linker wasmtime_linker_t;
 typedef struct wasmtime_module wasmtime_module_t;
 typedef struct wasmtime_store wasmtime_store_t;
 typedef struct wasmtime_call_future wasmtime_call_future_t;
+typedef struct wasi_config_t wasi_config_t;
 
 typedef float float32_t;
 typedef double float64_t;
@@ -81,6 +88,25 @@ typedef struct wasmtime_instance {
   size_t __private;
 } wasmtime_instance_t;
 
+typedef struct wasm_byte_vec_t {
+  size_t size;
+  uint8_t *data;
+} wasm_byte_vec_t;
+
+typedef uint8_t wasmtime_extern_kind_t;
+
+#define WASMTIME_EXTERN_FUNC 0
+
+typedef union wasmtime_extern_union {
+  wasmtime_func_t func;
+  uint8_t _padding[32];
+} wasmtime_extern_union_t;
+
+typedef struct wasmtime_extern {
+  wasmtime_extern_kind_t kind;
+  wasmtime_extern_union_t of;
+} wasmtime_extern_t;
+
 typedef bool (*wasmtime_func_async_continuation_callback_t)(void *env);
 
 typedef struct wasmtime_async_continuation_t {
@@ -136,12 +162,18 @@ typedef uint8_t *moonbit_bytes_t;
 
 moonbit_bytes_t moonbit_make_bytes(int32_t size, int init);
 
+wasm_engine_t *wasm_engine_new(void);
+void wasm_engine_delete(wasm_engine_t *);
+void wasm_byte_vec_delete(wasm_byte_vec_t *);
+
 wasmtime_error_t *wasmtime_error_new(const char *);
 wasmtime_error_t *wasmtime_config_target_set(wasm_config_t *, const char *);
 wasmtime_error_t *wasmtime_config_cache_config_load(wasm_config_t *, const char *);
 void wasmtime_config_cranelift_flag_enable(wasm_config_t *, const char *);
 void wasmtime_config_cranelift_flag_set(wasm_config_t *, const char *, const char *);
 wasmtime_store_t *wasmtime_store_new(wasm_engine_t *, void *, void (*)(void *));
+void wasmtime_store_delete(wasmtime_store_t *);
+wasmtime_context_t *wasmtime_store_context(wasmtime_store_t *);
 void wasmtime_error_delete(wasmtime_error_t *);
 void wasm_trap_delete(wasm_trap_t *);
 void wasmtime_val_unroot(wasmtime_val_t *);
@@ -154,6 +186,63 @@ wasm_functype_t *wasm_functype_new(
 void wasm_functype_delete(wasm_functype_t *);
 bool wasmtime_call_future_poll(wasmtime_call_future_t *);
 void wasmtime_call_future_delete(wasmtime_call_future_t *);
+wasmtime_error_t *wasmtime_wat2wasm(const char *, size_t, wasm_byte_vec_t *);
+wasmtime_error_t *wasmtime_module_new(
+  wasm_engine_t *,
+  const uint8_t *,
+  size_t,
+  wasmtime_module_t **
+);
+void wasmtime_module_delete(wasmtime_module_t *);
+wasmtime_error_t *wasmtime_instance_new(
+  wasmtime_context_t *,
+  const wasmtime_module_t *,
+  const wasmtime_extern_t *,
+  size_t,
+  wasmtime_instance_t *,
+  wasm_trap_t **
+);
+bool wasmtime_instance_export_get(
+  wasmtime_context_t *,
+  const wasmtime_instance_t *,
+  const char *,
+  size_t,
+  wasmtime_extern_t *
+);
+void wasmtime_extern_delete(wasmtime_extern_t *);
+wasmtime_error_t *wasmtime_func_call(
+  wasmtime_context_t *,
+  const wasmtime_func_t *,
+  const wasmtime_val_t *,
+  size_t,
+  wasmtime_val_t *,
+  size_t,
+  wasm_trap_t **
+);
+wasmtime_linker_t *wasmtime_linker_new(wasm_engine_t *);
+void wasmtime_linker_delete(wasmtime_linker_t *);
+wasmtime_error_t *wasmtime_linker_define_wasi(wasmtime_linker_t *);
+wasmtime_error_t *wasmtime_linker_instantiate(
+  const wasmtime_linker_t *,
+  wasmtime_context_t *,
+  const wasmtime_module_t *,
+  wasmtime_instance_t *,
+  wasm_trap_t **
+);
+wasi_config_t *wasi_config_new(void);
+void wasi_config_delete(wasi_config_t *);
+bool wasi_config_set_stdin_file(wasi_config_t *, const char *);
+bool wasi_config_preopen_dir(
+  wasi_config_t *,
+  const char *,
+  const char *,
+  size_t,
+  size_t
+);
+wasmtime_error_t *wasmtime_context_set_wasi(
+  wasmtime_context_t *,
+  wasi_config_t *
+);
 wasmtime_call_future_t *wasmtime_func_call_async(
   wasmtime_context_t *,
   const wasmtime_func_t *,
@@ -683,4 +772,648 @@ static wasm_trap_t *wasmtime_mbt_noop_callback(
 
 uint64_t wasmtime_noop_callback_ptr(void) {
   return (uint64_t)(uintptr_t)&wasmtime_mbt_noop_callback;
+}
+
+#if !defined(_WIN32)
+typedef struct wasmtime_call_future_thread {
+  wasmtime_call_future_t *future;
+  atomic_bool done;
+  int32_t sleep_us;
+  pthread_t thread;
+} wasmtime_call_future_thread_t;
+
+static void *wasmtime_call_future_thread_main(void *arg) {
+  wasmtime_call_future_thread_t *task = (wasmtime_call_future_thread_t *)arg;
+  while (!wasmtime_call_future_poll(task->future)) {
+    if (task->sleep_us > 0) {
+      struct timespec ts;
+      ts.tv_sec = (time_t)(task->sleep_us / 1000000);
+      ts.tv_nsec = (long)(task->sleep_us % 1000000) * 1000L;
+      nanosleep(&ts, NULL);
+    } else {
+      sched_yield();
+    }
+  }
+  atomic_store(&task->done, true);
+  return NULL;
+}
+#endif
+
+uint64_t wasmtime_call_future_thread_spawn(
+  wasmtime_call_future_t *future,
+  int32_t poll_sleep_us
+) {
+#if defined(_WIN32)
+  (void)future;
+  (void)poll_sleep_us;
+  return 0;
+#else
+  if (future == NULL) {
+    return 0;
+  }
+  wasmtime_call_future_thread_t *task =
+    (wasmtime_call_future_thread_t *)malloc(sizeof(wasmtime_call_future_thread_t));
+  if (task == NULL) {
+    return 0;
+  }
+  task->future = future;
+  task->sleep_us = poll_sleep_us < 0 ? 0 : poll_sleep_us;
+  atomic_init(&task->done, false);
+  if (pthread_create(&task->thread, NULL, wasmtime_call_future_thread_main, task) != 0) {
+    free(task);
+    return 0;
+  }
+  return (uint64_t)(uintptr_t)task;
+#endif
+}
+
+bool wasmtime_call_future_thread_is_done(uint64_t handle) {
+#if defined(_WIN32)
+  (void)handle;
+  return false;
+#else
+  if (handle == 0) {
+    return false;
+  }
+  wasmtime_call_future_thread_t *task =
+    (wasmtime_call_future_thread_t *)(uintptr_t)handle;
+  return atomic_load(&task->done);
+#endif
+}
+
+bool wasmtime_call_future_thread_join(uint64_t handle) {
+#if defined(_WIN32)
+  (void)handle;
+  return false;
+#else
+  if (handle == 0) {
+    return false;
+  }
+  wasmtime_call_future_thread_t *task =
+    (wasmtime_call_future_thread_t *)(uintptr_t)handle;
+  pthread_join(task->thread, NULL);
+  free(task);
+  return true;
+#endif
+}
+
+#if !defined(_WIN32)
+enum {
+  WASMTIME_WASM_JOB_OK = 0,
+  WASMTIME_WASM_JOB_WAT_ERROR = 1,
+  WASMTIME_WASM_JOB_MODULE_ERROR = 2,
+  WASMTIME_WASM_JOB_INSTANTIATE_ERROR = 3,
+  WASMTIME_WASM_JOB_TRAP = 4,
+  WASMTIME_WASM_JOB_EXPORT_NOT_FOUND = 5,
+  WASMTIME_WASM_JOB_EXPORT_NOT_FUNC = 6,
+  WASMTIME_WASM_JOB_CALL_ERROR = 7,
+  WASMTIME_WASM_JOB_BAD_RESULT = 8
+};
+
+typedef struct wasmtime_wasm_job {
+  atomic_bool done;
+  int32_t status;
+  int32_t result;
+  uint8_t *wat;
+  int32_t wat_len;
+  uint8_t *func;
+  int32_t func_len;
+  pthread_t thread;
+} wasmtime_wasm_job_t;
+
+static void wasmtime_wasm_job_clear_inputs(wasmtime_wasm_job_t *job) {
+  if (job->wat != NULL) {
+    free(job->wat);
+    job->wat = NULL;
+  }
+  if (job->func != NULL) {
+    free(job->func);
+    job->func = NULL;
+  }
+}
+
+static void wasmtime_write_i32_le(uint8_t *out, int32_t value) {
+  if (out == NULL) {
+    return;
+  }
+  out[0] = (uint8_t)(value & 0xff);
+  out[1] = (uint8_t)((value >> 8) & 0xff);
+  out[2] = (uint8_t)((value >> 16) & 0xff);
+  out[3] = (uint8_t)((value >> 24) & 0xff);
+}
+
+static void *wasmtime_wasm_job_main(void *arg) {
+  wasmtime_wasm_job_t *job = (wasmtime_wasm_job_t *)arg;
+  wasmtime_error_t *err = NULL;
+  wasm_trap_t *trap = NULL;
+  wasm_engine_t *engine = NULL;
+  wasmtime_store_t *store = NULL;
+  wasmtime_context_t *context = NULL;
+  wasmtime_module_t *module = NULL;
+  wasmtime_instance_t instance;
+  wasmtime_extern_t item;
+  wasmtime_val_t results[1];
+  wasm_byte_vec_t wasm = {0, NULL};
+
+  job->status = WASMTIME_WASM_JOB_OK;
+  job->result = 0;
+
+  err = wasmtime_wat2wasm((const char *)job->wat, (size_t)job->wat_len, &wasm);
+  if (err != NULL) {
+    job->status = WASMTIME_WASM_JOB_WAT_ERROR;
+    wasmtime_error_delete(err);
+    goto cleanup;
+  }
+
+  engine = wasm_engine_new();
+  if (engine == NULL) {
+    job->status = WASMTIME_WASM_JOB_MODULE_ERROR;
+    goto cleanup;
+  }
+
+  store = wasmtime_store_new(engine, NULL, NULL);
+  if (store == NULL) {
+    job->status = WASMTIME_WASM_JOB_MODULE_ERROR;
+    goto cleanup;
+  }
+  context = wasmtime_store_context(store);
+
+  err = wasmtime_module_new(engine, wasm.data, wasm.size, &module);
+  if (err != NULL || module == NULL) {
+    job->status = WASMTIME_WASM_JOB_MODULE_ERROR;
+    if (err != NULL) {
+      wasmtime_error_delete(err);
+    }
+    goto cleanup;
+  }
+
+  err = wasmtime_instance_new(context, module, NULL, 0, &instance, &trap);
+  if (err != NULL) {
+    job->status = WASMTIME_WASM_JOB_INSTANTIATE_ERROR;
+    wasmtime_error_delete(err);
+    goto cleanup;
+  }
+  if (trap != NULL) {
+    job->status = WASMTIME_WASM_JOB_TRAP;
+    wasm_trap_delete(trap);
+    trap = NULL;
+    goto cleanup;
+  }
+
+  if (!wasmtime_instance_export_get(
+        context,
+        &instance,
+        (const char *)job->func,
+        (size_t)job->func_len,
+        &item
+      )) {
+    job->status = WASMTIME_WASM_JOB_EXPORT_NOT_FOUND;
+    goto cleanup;
+  }
+
+  if (item.kind != WASMTIME_EXTERN_FUNC) {
+    job->status = WASMTIME_WASM_JOB_EXPORT_NOT_FUNC;
+    wasmtime_extern_delete(&item);
+    goto cleanup;
+  }
+
+  err = wasmtime_func_call(
+    context,
+    &item.of.func,
+    NULL,
+    0,
+    results,
+    1,
+    &trap
+  );
+  if (err != NULL) {
+    job->status = WASMTIME_WASM_JOB_CALL_ERROR;
+    wasmtime_error_delete(err);
+    err = NULL;
+    wasmtime_extern_delete(&item);
+    goto cleanup;
+  }
+  if (trap != NULL) {
+    job->status = WASMTIME_WASM_JOB_TRAP;
+    wasm_trap_delete(trap);
+    trap = NULL;
+    wasmtime_extern_delete(&item);
+    goto cleanup;
+  }
+
+  if (results[0].kind != WASMTIME_I32) {
+    job->status = WASMTIME_WASM_JOB_BAD_RESULT;
+    wasmtime_val_unroot(&results[0]);
+    wasmtime_extern_delete(&item);
+    goto cleanup;
+  }
+  job->result = results[0].of.i32;
+  wasmtime_val_unroot(&results[0]);
+  wasmtime_extern_delete(&item);
+
+cleanup:
+  if (module != NULL) {
+    wasmtime_module_delete(module);
+  }
+  if (store != NULL) {
+    wasmtime_store_delete(store);
+  }
+  if (engine != NULL) {
+    wasm_engine_delete(engine);
+  }
+  if (wasm.data != NULL) {
+    wasm_byte_vec_delete(&wasm);
+  }
+  wasmtime_wasm_job_clear_inputs(job);
+  atomic_store(&job->done, true);
+  return NULL;
+}
+#endif
+
+uint64_t wasmtime_wasm_job_spawn_wat(
+  const uint8_t *wat,
+  int32_t wat_len,
+  const uint8_t *func,
+  int32_t func_len
+) {
+#if defined(_WIN32)
+  (void)wat;
+  (void)wat_len;
+  (void)func;
+  (void)func_len;
+  return 0;
+#else
+  if (wat == NULL || func == NULL || wat_len <= 0 || func_len <= 0) {
+    return 0;
+  }
+  wasmtime_wasm_job_t *job =
+    (wasmtime_wasm_job_t *)malloc(sizeof(wasmtime_wasm_job_t));
+  if (job == NULL) {
+    return 0;
+  }
+  memset(job, 0, sizeof(*job));
+  job->wat = (uint8_t *)malloc((size_t)wat_len);
+  job->func = (uint8_t *)malloc((size_t)func_len);
+  if (job->wat == NULL || job->func == NULL) {
+    wasmtime_wasm_job_clear_inputs(job);
+    free(job);
+    return 0;
+  }
+  memcpy(job->wat, wat, (size_t)wat_len);
+  memcpy(job->func, func, (size_t)func_len);
+  job->wat_len = wat_len;
+  job->func_len = func_len;
+  atomic_init(&job->done, false);
+  if (pthread_create(&job->thread, NULL, wasmtime_wasm_job_main, job) != 0) {
+    wasmtime_wasm_job_clear_inputs(job);
+    free(job);
+    return 0;
+  }
+  return (uint64_t)(uintptr_t)job;
+#endif
+}
+
+bool wasmtime_wasm_job_is_done(uint64_t handle) {
+#if defined(_WIN32)
+  (void)handle;
+  return false;
+#else
+  if (handle == 0) {
+    return false;
+  }
+  wasmtime_wasm_job_t *job = (wasmtime_wasm_job_t *)(uintptr_t)handle;
+  return atomic_load(&job->done);
+#endif
+}
+
+bool wasmtime_wasm_job_join(uint64_t handle, uint8_t *result_out, uint8_t *status_out) {
+#if defined(_WIN32)
+  (void)handle;
+  (void)result_out;
+  (void)status_out;
+  return false;
+#else
+  if (handle == 0) {
+    return false;
+  }
+  wasmtime_wasm_job_t *job = (wasmtime_wasm_job_t *)(uintptr_t)handle;
+  pthread_join(job->thread, NULL);
+  wasmtime_write_i32_le(result_out, job->result);
+  wasmtime_write_i32_le(status_out, job->status);
+  free(job);
+  return true;
+#endif
+}
+
+#if !defined(_WIN32)
+enum {
+  WASMTIME_WASI_JOB_OK = 0,
+  WASMTIME_WASI_JOB_WAT_ERROR = 1,
+  WASMTIME_WASI_JOB_MODULE_ERROR = 2,
+  WASMTIME_WASI_JOB_INSTANTIATE_ERROR = 3,
+  WASMTIME_WASI_JOB_TRAP = 4,
+  WASMTIME_WASI_JOB_EXPORT_NOT_FOUND = 5,
+  WASMTIME_WASI_JOB_EXPORT_NOT_FUNC = 6,
+  WASMTIME_WASI_JOB_CALL_ERROR = 7,
+  WASMTIME_WASI_JOB_BAD_RESULT = 8,
+  WASMTIME_WASI_JOB_WASI_CONFIG_ERROR = 9,
+  WASMTIME_WASI_JOB_WASI_LINKER_ERROR = 10,
+  WASMTIME_WASI_JOB_WASI_STDIN_ERROR = 11
+};
+
+typedef struct wasmtime_wasi_job {
+  atomic_bool done;
+  int32_t status;
+  int32_t result;
+  uint8_t *wat;
+  int32_t wat_len;
+  uint8_t *func;
+  int32_t func_len;
+  uint8_t *stdin_path;
+  int32_t stdin_len;
+  pthread_t thread;
+} wasmtime_wasi_job_t;
+
+static void wasmtime_wasi_job_clear_inputs(wasmtime_wasi_job_t *job) {
+  if (job->wat != NULL) {
+    free(job->wat);
+    job->wat = NULL;
+  }
+  if (job->func != NULL) {
+    free(job->func);
+    job->func = NULL;
+  }
+  if (job->stdin_path != NULL) {
+    free(job->stdin_path);
+    job->stdin_path = NULL;
+  }
+}
+
+static void *wasmtime_wasi_job_main(void *arg) {
+  wasmtime_wasi_job_t *job = (wasmtime_wasi_job_t *)arg;
+  wasmtime_error_t *err = NULL;
+  wasm_trap_t *trap = NULL;
+  wasm_engine_t *engine = NULL;
+  wasmtime_store_t *store = NULL;
+  wasmtime_context_t *context = NULL;
+  wasmtime_module_t *module = NULL;
+  wasmtime_linker_t *linker = NULL;
+  wasmtime_instance_t instance;
+  wasmtime_extern_t item;
+  wasmtime_val_t results[1];
+  wasm_byte_vec_t wasm = {0, NULL};
+  wasi_config_t *wasi = NULL;
+  char *stdin_cstr = NULL;
+
+  job->status = WASMTIME_WASI_JOB_OK;
+  job->result = 0;
+
+  err = wasmtime_wat2wasm((const char *)job->wat, (size_t)job->wat_len, &wasm);
+  if (err != NULL) {
+    job->status = WASMTIME_WASI_JOB_WAT_ERROR;
+    wasmtime_error_delete(err);
+    goto cleanup;
+  }
+
+  engine = wasm_engine_new();
+  if (engine == NULL) {
+    job->status = WASMTIME_WASI_JOB_MODULE_ERROR;
+    goto cleanup;
+  }
+
+  store = wasmtime_store_new(engine, NULL, NULL);
+  if (store == NULL) {
+    job->status = WASMTIME_WASI_JOB_MODULE_ERROR;
+    goto cleanup;
+  }
+  context = wasmtime_store_context(store);
+
+  err = wasmtime_module_new(engine, wasm.data, wasm.size, &module);
+  if (err != NULL || module == NULL) {
+    job->status = WASMTIME_WASI_JOB_MODULE_ERROR;
+    if (err != NULL) {
+      wasmtime_error_delete(err);
+    }
+    goto cleanup;
+  }
+
+  wasi = wasi_config_new();
+  if (wasi == NULL) {
+    job->status = WASMTIME_WASI_JOB_WASI_CONFIG_ERROR;
+    goto cleanup;
+  }
+  if (job->stdin_len > 0) {
+    stdin_cstr = wasmtime_mbt_copy_cstr(job->stdin_path, job->stdin_len);
+    if (stdin_cstr == NULL) {
+      job->status = WASMTIME_WASI_JOB_WASI_STDIN_ERROR;
+      goto cleanup;
+    }
+    if (!wasi_config_set_stdin_file(wasi, stdin_cstr)) {
+      job->status = WASMTIME_WASI_JOB_WASI_STDIN_ERROR;
+      goto cleanup;
+    }
+  }
+
+  err = wasmtime_context_set_wasi(context, wasi);
+  wasi = NULL;
+  if (err != NULL) {
+    job->status = WASMTIME_WASI_JOB_WASI_CONFIG_ERROR;
+    wasmtime_error_delete(err);
+    goto cleanup;
+  }
+
+  linker = wasmtime_linker_new(engine);
+  if (linker == NULL) {
+    job->status = WASMTIME_WASI_JOB_WASI_LINKER_ERROR;
+    goto cleanup;
+  }
+  err = wasmtime_linker_define_wasi(linker);
+  if (err != NULL) {
+    job->status = WASMTIME_WASI_JOB_WASI_LINKER_ERROR;
+    wasmtime_error_delete(err);
+    goto cleanup;
+  }
+
+  err = wasmtime_linker_instantiate(linker, context, module, &instance, &trap);
+  if (err != NULL) {
+    job->status = WASMTIME_WASI_JOB_INSTANTIATE_ERROR;
+    wasmtime_error_delete(err);
+    goto cleanup;
+  }
+  if (trap != NULL) {
+    job->status = WASMTIME_WASI_JOB_TRAP;
+    wasm_trap_delete(trap);
+    trap = NULL;
+    goto cleanup;
+  }
+
+  if (!wasmtime_instance_export_get(
+        context,
+        &instance,
+        (const char *)job->func,
+        (size_t)job->func_len,
+        &item
+      )) {
+    job->status = WASMTIME_WASI_JOB_EXPORT_NOT_FOUND;
+    goto cleanup;
+  }
+
+  if (item.kind != WASMTIME_EXTERN_FUNC) {
+    job->status = WASMTIME_WASI_JOB_EXPORT_NOT_FUNC;
+    wasmtime_extern_delete(&item);
+    goto cleanup;
+  }
+
+  err = wasmtime_func_call(
+    context,
+    &item.of.func,
+    NULL,
+    0,
+    results,
+    1,
+    &trap
+  );
+  if (err != NULL) {
+    job->status = WASMTIME_WASI_JOB_CALL_ERROR;
+    wasmtime_error_delete(err);
+    err = NULL;
+    wasmtime_extern_delete(&item);
+    goto cleanup;
+  }
+  if (trap != NULL) {
+    job->status = WASMTIME_WASI_JOB_TRAP;
+    wasm_trap_delete(trap);
+    trap = NULL;
+    wasmtime_extern_delete(&item);
+    goto cleanup;
+  }
+
+  if (results[0].kind != WASMTIME_I32) {
+    job->status = WASMTIME_WASI_JOB_BAD_RESULT;
+    wasmtime_val_unroot(&results[0]);
+    wasmtime_extern_delete(&item);
+    goto cleanup;
+  }
+  job->result = results[0].of.i32;
+  wasmtime_val_unroot(&results[0]);
+  wasmtime_extern_delete(&item);
+
+cleanup:
+  if (stdin_cstr != NULL) {
+    free(stdin_cstr);
+  }
+  if (wasi != NULL) {
+    wasi_config_delete(wasi);
+  }
+  if (linker != NULL) {
+    wasmtime_linker_delete(linker);
+  }
+  if (module != NULL) {
+    wasmtime_module_delete(module);
+  }
+  if (store != NULL) {
+    wasmtime_store_delete(store);
+  }
+  if (engine != NULL) {
+    wasm_engine_delete(engine);
+  }
+  if (wasm.data != NULL) {
+    wasm_byte_vec_delete(&wasm);
+  }
+  wasmtime_wasi_job_clear_inputs(job);
+  atomic_store(&job->done, true);
+  return NULL;
+}
+#endif
+
+uint64_t wasmtime_wasi_job_spawn_wat(
+  const uint8_t *wat,
+  int32_t wat_len,
+  const uint8_t *func,
+  int32_t func_len,
+  const uint8_t *stdin_path,
+  int32_t stdin_len
+) {
+#if defined(_WIN32)
+  (void)wat;
+  (void)wat_len;
+  (void)func;
+  (void)func_len;
+  (void)stdin_path;
+  (void)stdin_len;
+  return 0;
+#else
+  if (wat == NULL || func == NULL || wat_len <= 0 || func_len <= 0) {
+    return 0;
+  }
+  wasmtime_wasi_job_t *job =
+    (wasmtime_wasi_job_t *)malloc(sizeof(wasmtime_wasi_job_t));
+  if (job == NULL) {
+    return 0;
+  }
+  memset(job, 0, sizeof(*job));
+  job->wat = (uint8_t *)malloc((size_t)wat_len);
+  job->func = (uint8_t *)malloc((size_t)func_len);
+  if (job->wat == NULL || job->func == NULL) {
+    wasmtime_wasi_job_clear_inputs(job);
+    free(job);
+    return 0;
+  }
+  if (stdin_len > 0) {
+    job->stdin_path = (uint8_t *)malloc((size_t)stdin_len);
+    if (job->stdin_path == NULL) {
+      wasmtime_wasi_job_clear_inputs(job);
+      free(job);
+      return 0;
+    }
+    memcpy(job->stdin_path, stdin_path, (size_t)stdin_len);
+    job->stdin_len = stdin_len;
+  } else {
+    job->stdin_path = NULL;
+    job->stdin_len = 0;
+  }
+  memcpy(job->wat, wat, (size_t)wat_len);
+  memcpy(job->func, func, (size_t)func_len);
+  job->wat_len = wat_len;
+  job->func_len = func_len;
+  atomic_init(&job->done, false);
+  if (pthread_create(&job->thread, NULL, wasmtime_wasi_job_main, job) != 0) {
+    wasmtime_wasi_job_clear_inputs(job);
+    free(job);
+    return 0;
+  }
+  return (uint64_t)(uintptr_t)job;
+#endif
+}
+
+bool wasmtime_wasi_job_is_done(uint64_t handle) {
+#if defined(_WIN32)
+  (void)handle;
+  return false;
+#else
+  if (handle == 0) {
+    return false;
+  }
+  wasmtime_wasi_job_t *job = (wasmtime_wasi_job_t *)(uintptr_t)handle;
+  return atomic_load(&job->done);
+#endif
+}
+
+bool wasmtime_wasi_job_join(uint64_t handle, uint8_t *result_out, uint8_t *status_out) {
+#if defined(_WIN32)
+  (void)handle;
+  (void)result_out;
+  (void)status_out;
+  return false;
+#else
+  if (handle == 0) {
+    return false;
+  }
+  wasmtime_wasi_job_t *job = (wasmtime_wasi_job_t *)(uintptr_t)handle;
+  pthread_join(job->thread, NULL);
+  wasmtime_write_i32_le(result_out, job->result);
+  wasmtime_write_i32_le(status_out, job->status);
+  free(job);
+  return true;
+#endif
 }

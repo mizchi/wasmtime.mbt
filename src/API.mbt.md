@@ -131,6 +131,82 @@ functype_delete(ty)
 async_context_delete(engine, store)
 ```
 
+## Async polling thread (native)
+
+Spawn a background OS thread to poll a `CallFuture`.
+Keep the `CallFuture` and any buffers alive until the thread is joined.
+
+```mbt nocheck
+let (engine, store, context) = async_context_new(4 * 1024 * 1024)
+let args = make_val_buffer(0)
+let results = make_val_buffer(0)
+let trap_ptr = make_ptr_buffer()
+let err_ptr = make_ptr_buffer()
+
+let params : Bytes = []
+let results_sig : Bytes = []
+let ty = functype_new_from_valkinds_or_raise(params, results_sig)
+let cb_ptr = func_noop_callback_ptr()
+let func_bytes = func_buffer_new_with_ptr(context, ty, cb_ptr, 0, 0)
+
+let future = func_call_async(context, func_bytes, args, results, trap_ptr, err_ptr)
+let thread = call_future_thread_spawn_or_raise(future, poll_sleep_us=1000)
+call_future_thread_join_or_raise(thread)
+call_future_delete(future)
+
+if not(ptr_buffer_is_null(err_ptr)) { error_delete_ptr_buffer(err_ptr) }
+if not(ptr_buffer_is_null(trap_ptr)) { trap_delete_ptr_buffer(trap_ptr) }
+functype_delete(ty)
+async_context_delete(engine, store)
+```
+
+## Wasm job thread (POC)
+
+Run a wasm function in a dedicated OS thread. The wasm module is provided as
+WAT and compiled inside the thread.
+
+```mbt nocheck
+let wat =
+  #|(module
+  #|  (func (export "run") (result i32)
+  #|    i32.const 7))
+let handle = wasm_job_spawn_wat_or_raise(wat, "run")
+let result = wasm_job_join_or_raise(handle)
+inspect(result, content="7")
+```
+
+## WASI file I/O job (POC)
+
+Use WASI + linker to run a wasm function that reads from stdin. The stdin is
+mapped to a host file path.
+
+```mbt nocheck
+let wat =
+  #|(module
+  #|  (import "wasi_snapshot_preview1" "fd_read"
+  #|    (func $fd_read (param i32 i32 i32 i32) (result i32)))
+  #|  (memory 1)
+  #|  (export "memory" (memory 0))
+  #|  (func (export "run") (result i32)
+  #|    i32.const 8
+  #|    i32.const 16
+  #|    i32.store
+  #|    i32.const 12
+  #|    i32.const 100
+  #|    i32.store
+  #|    i32.const 0
+  #|    i32.const 8
+  #|    i32.const 1
+  #|    i32.const 4
+  #|    call $fd_read
+  #|    drop
+  #|    i32.const 4
+  #|    i32.load))
+let handle = wasi_job_spawn_wat_or_raise(wat, "run", "src/testdata/wasm_job_input.txt")
+let result = wasi_job_join_or_raise(handle)
+inspect(result, content="5")
+```
+
 ## Target/cache helpers
 
 String-based helpers use UTF-8 bytes and return an Error pointer.

@@ -110,3 +110,39 @@ pub fn func_call_async_result_autoclean(
     }
   }
 }
+
+///|
+/// Spawn a polling thread for a CallFuture (Result-based).
+pub fn call_future_thread_spawn_result(
+  future : CallFuture,
+  poll_sleep_us? : Int = 1000,
+) -> Result[UInt64, Error] {
+  let handle = call_future_thread_spawn(future, poll_sleep_us)
+  if handle == 0 {
+    Err(@builtin.Failure::Failure("call_future_thread_spawn failed"))
+  } else {
+    Ok(handle)
+  }
+}
+
+///|
+/// Spawn a polling thread for a CallFuture (raise on failure).
+pub fn call_future_thread_spawn_or_raise(
+  future : CallFuture,
+  poll_sleep_us? : Int = 1000,
+) -> UInt64 raise {
+  let handle = call_future_thread_spawn(future, poll_sleep_us)
+  if handle == 0 {
+    fail("call_future_thread_spawn failed")
+  } else {
+    handle
+  }
+}
+
+///|
+/// Join and free a polling thread handle (raise on failure).
+pub fn call_future_thread_join_or_raise(handle : UInt64) -> Unit raise {
+  if not(call_future_thread_join(handle)) {
+    fail("call_future_thread_join failed")
+  }
+}

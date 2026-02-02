@@ -15,7 +15,7 @@ options(
   ],
   link: {
     "native": {
-      "cc-link-flags": "-Ldeps/wasmtime/target/release -lwasmtime"
+      "cc-link-flags": "-Ldeps/wasmtime/target/release -lwasmtime -pthread"
     }
   },
   targets: {

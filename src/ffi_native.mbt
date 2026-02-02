@@ -388,6 +388,70 @@ pub extern "C" fn call_future_poll(future : CallFuture) -> Bool = "wasmtime_call
 pub extern "C" fn call_future_delete(future : CallFuture) -> Unit = "wasmtime_call_future_delete"
 
 ///|
+/// Spawn a polling thread for a call future. Returns 0 on failure.
+#borrow(future)
+pub extern "C" fn call_future_thread_spawn(
+  future : CallFuture,
+  poll_sleep_us : Int,
+) -> UInt64 = "wasmtime_call_future_thread_spawn"
+
+///|
+/// Check whether a polling thread completed.
+pub extern "C" fn call_future_thread_is_done(handle : UInt64) -> Bool = "wasmtime_call_future_thread_is_done"
+
+///|
+/// Join and free a polling thread handle.
+pub extern "C" fn call_future_thread_join(handle : UInt64) -> Bool = "wasmtime_call_future_thread_join"
+
+///|
+/// Spawn a wasm job thread from WAT bytes. Returns 0 on failure.
+#borrow(wat, func)
+pub extern "C" fn wasm_job_spawn_wat_bytes(
+  wat : Bytes,
+  wat_len : Int,
+  func : Bytes,
+  func_len : Int,
+) -> UInt64 = "wasmtime_wasm_job_spawn_wat"
+
+///|
+/// Check whether a wasm job has finished.
+pub extern "C" fn wasm_job_is_done(handle : UInt64) -> Bool = "wasmtime_wasm_job_is_done"
+
+///|
+/// Join a wasm job and write result/status into bytes.
+#borrow(result_out, status_out)
+pub extern "C" fn wasm_job_join_bytes(
+  handle : UInt64,
+  result_out : Bytes,
+  status_out : Bytes,
+) -> Bool = "wasmtime_wasm_job_join"
+
+///|
+/// Spawn a WASI-backed wasm job thread from WAT bytes. Returns 0 on failure.
+#borrow(wat, func, stdin_path)
+pub extern "C" fn wasi_job_spawn_wat_bytes(
+  wat : Bytes,
+  wat_len : Int,
+  func : Bytes,
+  func_len : Int,
+  stdin_path : Bytes,
+  stdin_len : Int,
+) -> UInt64 = "wasmtime_wasi_job_spawn_wat"
+
+///|
+/// Check whether a WASI wasm job has finished.
+pub extern "C" fn wasi_job_is_done(handle : UInt64) -> Bool = "wasmtime_wasi_job_is_done"
+
+///|
+/// Join a WASI wasm job and write result/status into bytes.
+#borrow(result_out, status_out)
+pub extern "C" fn wasi_job_join_bytes(
+  handle : UInt64,
+  result_out : Bytes,
+  status_out : Bytes,
+) -> Bool = "wasmtime_wasi_job_join"
+
+///|
 /// Call a function asynchronously using bytes-backed values.
 #borrow(context, func, args, results, trap_out, error_out)
 pub extern "C" fn func_call_async_bytes(
