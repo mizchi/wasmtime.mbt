@@ -55,7 +55,7 @@ options(
       "output": [
         "build-stamps/wasmtime_prebuild.stamp"
       ],
-      "command": "mkdir -p build-stamps && bash .mooncakes/mizchi/wasmtime/src/scripts/build-wasmtime.sh .mooncakes/mizchi/wasmtime/src/build-stamps/wasmtime_build.stamp && date -u +%Y-%m-%dT%H:%M:%SZ > $output"
+      "command": "mkdir -p build-stamps && bash .mooncakes/mizchi/wasmtime/src/scripts/build-wasmtime.sh src/build-stamps/wasmtime_build.stamp && date -u +%Y-%m-%dT%H:%M:%SZ > $output"
     }
   ],
 )
