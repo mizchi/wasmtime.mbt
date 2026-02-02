@@ -453,14 +453,22 @@ wasmtime_call_future_t *wasmtime_func_call_async_bytes(
   const wasmtime_func_t *func = (const wasmtime_func_t *)func_bytes;
   const wasmtime_val_t *args = (const wasmtime_val_t *)args_bytes;
   wasmtime_val_t *results = (wasmtime_val_t *)results_bytes;
+  wasm_trap_t **trap_ptr = NULL;
+  wasmtime_error_t **error_ptr = NULL;
   if (nargs == 0) {
     args = NULL;
   }
   if (nresults == 0) {
     results = NULL;
   }
-  wasm_trap_t *trap = NULL;
-  wasmtime_error_t *error = NULL;
+  if (trap_out != NULL) {
+    memset(trap_out, 0, sizeof(void *));
+    trap_ptr = (wasm_trap_t **)trap_out;
+  }
+  if (error_out != NULL) {
+    memset(error_out, 0, sizeof(void *));
+    error_ptr = (wasmtime_error_t **)error_out;
+  }
   wasmtime_call_future_t *future = wasmtime_func_call_async(
     context,
     func,
@@ -468,11 +476,9 @@ wasmtime_call_future_t *wasmtime_func_call_async_bytes(
     (size_t)nargs,
     results,
     (size_t)nresults,
-    &trap,
-    &error
+    trap_ptr,
+    error_ptr
   );
-  moonbit_ptr_write_raw(trap_out, trap);
-  moonbit_ptr_write_raw(error_out, error);
   return future;
 }
 
@@ -512,19 +518,25 @@ wasmtime_call_future_t *wasmtime_linker_instantiate_async_bytes(
   uint8_t *trap_out,
   uint8_t *error_out
 ) {
-  wasm_trap_t *trap = NULL;
-  wasmtime_error_t *error = NULL;
+  wasm_trap_t **trap_ptr = NULL;
+  wasmtime_error_t **error_ptr = NULL;
   wasmtime_instance_t *instance = (wasmtime_instance_t *)instance_bytes;
+  if (trap_out != NULL) {
+    memset(trap_out, 0, sizeof(void *));
+    trap_ptr = (wasm_trap_t **)trap_out;
+  }
+  if (error_out != NULL) {
+    memset(error_out, 0, sizeof(void *));
+    error_ptr = (wasmtime_error_t **)error_out;
+  }
   wasmtime_call_future_t *future = wasmtime_linker_instantiate_async(
     linker,
     store,
     module,
     instance,
-    &trap,
-    &error
+    trap_ptr,
+    error_ptr
   );
-  moonbit_ptr_write_raw(trap_out, trap);
-  moonbit_ptr_write_raw(error_out, error);
   return future;
 }
 
@@ -535,18 +547,24 @@ wasmtime_call_future_t *wasmtime_instance_pre_instantiate_async_bytes(
   uint8_t *trap_out,
   uint8_t *error_out
 ) {
-  wasm_trap_t *trap = NULL;
-  wasmtime_error_t *error = NULL;
+  wasm_trap_t **trap_ptr = NULL;
+  wasmtime_error_t **error_ptr = NULL;
   wasmtime_instance_t *instance = (wasmtime_instance_t *)instance_bytes;
+  if (trap_out != NULL) {
+    memset(trap_out, 0, sizeof(void *));
+    trap_ptr = (wasm_trap_t **)trap_out;
+  }
+  if (error_out != NULL) {
+    memset(error_out, 0, sizeof(void *));
+    error_ptr = (wasmtime_error_t **)error_out;
+  }
   wasmtime_call_future_t *future = wasmtime_instance_pre_instantiate_async(
     instance_pre,
     store,
     instance,
-    &trap,
-    &error
+    trap_ptr,
+    error_ptr
   );
-  moonbit_ptr_write_raw(trap_out, trap);
-  moonbit_ptr_write_raw(error_out, error);
   return future;
 }
 
