@@ -49,6 +49,92 @@ extern "C" fn thread_runtime_spawn_wasm_native(
   args_len : Int,
   error_out : Bytes,
 ) -> UInt64 = "wasmtime_thread_runtime_spawn_wasm"
+///|
+#borrow(wasm, error_out)
+extern "C" fn thread_runtime_precompile_cwasm_native(
+  runtime : UInt64,
+  wasm : Bytes,
+  wasm_len : Int,
+  error_out : Bytes,
+) -> Bytes = "wasmtime_thread_runtime_precompile_cwasm"
+///|
+#borrow(cwasm, entry, args, error_out)
+extern "C" fn thread_runtime_spawn_cwasm_native(
+  runtime : UInt64,
+  cwasm : Bytes,
+  cwasm_len : Int,
+  entry : Bytes,
+  entry_len : Int,
+  args : Bytes,
+  args_len : Int,
+  error_out : Bytes,
+) -> UInt64 = "wasmtime_thread_runtime_spawn_cwasm"
+///|
+#borrow(cwasm, entry, args, error_out)
+extern "C" fn thread_runtime_spawn_cwasm_repeat_native(
+  runtime : UInt64,
+  cwasm : Bytes,
+  cwasm_len : Int,
+  entry : Bytes,
+  entry_len : Int,
+  args : Bytes,
+  args_len : Int,
+  repeat : Int,
+  error_out : Bytes,
+) -> UInt64 = "wasmtime_thread_runtime_spawn_cwasm_repeat"
+///|
+#borrow(wasm, entry, args, error_out)
+extern "C" fn thread_runtime_spawn_wasm_repeat_native(
+  runtime : UInt64,
+  wasm : Bytes,
+  wasm_len : Int,
+  entry : Bytes,
+  entry_len : Int,
+  args : Bytes,
+  args_len : Int,
+  repeat : Int,
+  error_out : Bytes,
+) -> UInt64 = "wasmtime_thread_runtime_spawn_wasm_repeat"
+
+///|
+/// Native: configure WASI preopen directory.
+#borrow(host_path, guest_path, error_out)
+extern "C" fn thread_runtime_wasi_preopen_dir_native(
+  runtime : UInt64,
+  host_path : Bytes,
+  host_len : Int,
+  guest_path : Bytes,
+  guest_len : Int,
+  dir_perms : Int,
+  file_perms : Int,
+  error_out : Bytes,
+) -> Bool = "wasmtime_thread_runtime_wasi_preopen_dir"
+
+///|
+/// Native: configure WASI argv from NUL-separated bytes.
+#borrow(argv_bytes, error_out)
+extern "C" fn thread_runtime_wasi_set_argv_native(
+  runtime : UInt64,
+  argv_bytes : Bytes,
+  argv_len : Int,
+  error_out : Bytes,
+) -> Bool = "wasmtime_thread_runtime_wasi_set_argv_bytes"
+
+///|
+/// Native: inherit argv from host process.
+#borrow(error_out)
+extern "C" fn thread_runtime_wasi_inherit_argv_native(
+  runtime : UInt64,
+  error_out : Bytes,
+) -> Bool = "wasmtime_thread_runtime_wasi_inherit_argv"
+
+///|
+/// Native: inherit stdio from host process.
+#borrow(error_out)
+extern "C" fn thread_runtime_wasi_inherit_stdio_native(
+  runtime : UInt64,
+  error_out : Bytes,
+) -> Bool = "wasmtime_thread_runtime_wasi_inherit_stdio"
 
 ///|
 /// Native: join a spawned thread.
@@ -202,6 +288,212 @@ pub fn thread_runtime_spawn_wasm(
     Err(take_error_or(err_ptr, "thread_runtime_spawn_wasm failed"))
   } else {
     Ok(ThreadHandle::{ handle, })
+  }
+}
+
+///|
+/// Precompile a wasm module into a serialized cwasm blob.
+pub fn thread_runtime_precompile_cwasm(
+  rt : ThreadRuntime,
+  wasm : Bytes,
+) -> Result[Bytes, Error] {
+  let err_ptr = @wasmtime.make_ptr_buffer()
+  let bytes = thread_runtime_precompile_cwasm_native(
+    rt.handle,
+    wasm,
+    wasm.length(),
+    err_ptr,
+  )
+  if not(@wasmtime.ptr_buffer_is_null(err_ptr)) {
+    Err(take_error_or(err_ptr, "thread_runtime_precompile_cwasm failed"))
+  } else {
+    Ok(bytes)
+  }
+}
+
+///|
+/// Spawn a wasm thread from cwasm bytes (entry must return no values).
+pub fn thread_runtime_spawn_cwasm(
+  rt : ThreadRuntime,
+  cwasm : Bytes,
+  entry : String,
+  args : Bytes,
+) -> Result[ThreadHandle, Error] {
+  let err_ptr = @wasmtime.make_ptr_buffer()
+  let entry_bytes = @utf8.encode(entry)
+  let handle = thread_runtime_spawn_cwasm_native(
+    rt.handle,
+    cwasm,
+    cwasm.length(),
+    entry_bytes,
+    entry_bytes.length(),
+    args,
+    args.length(),
+    err_ptr,
+  )
+  if handle == 0 || not(@wasmtime.ptr_buffer_is_null(err_ptr)) {
+    Err(take_error_or(err_ptr, "thread_runtime_spawn_cwasm failed"))
+  } else {
+    Ok(ThreadHandle::{ handle, })
+  }
+}
+
+///|
+/// Spawn a cwasm thread and run the entry multiple times in the same instance.
+pub fn thread_runtime_spawn_cwasm_repeat(
+  rt : ThreadRuntime,
+  cwasm : Bytes,
+  entry : String,
+  args : Bytes,
+  repeat : Int,
+) -> Result[ThreadHandle, Error] {
+  if repeat <= 0 {
+    return Err(@builtin.Failure::Failure("repeat must be > 0"))
+  }
+  let err_ptr = @wasmtime.make_ptr_buffer()
+  let entry_bytes = @utf8.encode(entry)
+  let handle = thread_runtime_spawn_cwasm_repeat_native(
+    rt.handle,
+    cwasm,
+    cwasm.length(),
+    entry_bytes,
+    entry_bytes.length(),
+    args,
+    args.length(),
+    repeat,
+    err_ptr,
+  )
+  if handle == 0 || not(@wasmtime.ptr_buffer_is_null(err_ptr)) {
+    Err(take_error_or(err_ptr, "thread_runtime_spawn_cwasm_repeat failed"))
+  } else {
+    Ok(ThreadHandle::{ handle, })
+  }
+}
+
+///|
+/// Spawn a wasm thread and run the entry multiple times in the same instance.
+pub fn thread_runtime_spawn_wasm_repeat(
+  rt : ThreadRuntime,
+  wasm : Bytes,
+  entry : String,
+  args : Bytes,
+  repeat : Int,
+) -> Result[ThreadHandle, Error] {
+  if repeat <= 0 {
+    return Err(@builtin.Failure::Failure("repeat must be > 0"))
+  }
+  let err_ptr = @wasmtime.make_ptr_buffer()
+  let entry_bytes = @utf8.encode(entry)
+  let handle = thread_runtime_spawn_wasm_repeat_native(
+    rt.handle,
+    wasm,
+    wasm.length(),
+    entry_bytes,
+    entry_bytes.length(),
+    args,
+    args.length(),
+    repeat,
+    err_ptr,
+  )
+  if handle == 0 || not(@wasmtime.ptr_buffer_is_null(err_ptr)) {
+    Err(take_error_or(err_ptr, "thread_runtime_spawn_wasm_repeat failed"))
+  } else {
+    Ok(ThreadHandle::{ handle, })
+  }
+}
+
+///|
+fn encode_argv_bytes(args : Array[String]) -> Bytes {
+  if args.is_empty() {
+    Bytes::default()
+  } else {
+    let out : Array[Byte] = []
+    for arg in args {
+      let bytes = @utf8.encode(arg)
+      for b in bytes {
+        out.push(b)
+      }
+      out.push(0)
+    }
+    Bytes::from_array(out)
+  }
+}
+
+///|
+/// Configure WASI preopen directory for the runtime.
+pub fn thread_runtime_wasi_preopen_dir(
+  rt : ThreadRuntime,
+  host_path : String,
+  guest_path? : String = ".",
+  dir_perms? : @wasi.WasiDirPerms = @wasi.WASI_DIR_PERMS_READ,
+  file_perms? : @wasi.WasiFilePerms = @wasi.WASI_FILE_PERMS_READ,
+) -> Result[Unit, Error] {
+  let err_ptr = @wasmtime.make_ptr_buffer()
+  let host_bytes = @utf8.encode(host_path)
+  let guest_bytes = @utf8.encode(guest_path)
+  let ok = thread_runtime_wasi_preopen_dir_native(
+    rt.handle,
+    host_bytes,
+    host_bytes.length(),
+    guest_bytes,
+    guest_bytes.length(),
+    dir_perms,
+    file_perms,
+    err_ptr,
+  )
+  if ok && @wasmtime.ptr_buffer_is_null(err_ptr) {
+    Ok(())
+  } else {
+    Err(take_error_or(err_ptr, "thread_runtime_wasi_preopen_dir failed"))
+  }
+}
+
+///|
+/// Configure WASI argv for the runtime.
+pub fn thread_runtime_wasi_set_argv(
+  rt : ThreadRuntime,
+  argv : Array[String],
+) -> Result[Unit, Error] {
+  let err_ptr = @wasmtime.make_ptr_buffer()
+  let argv_bytes = encode_argv_bytes(argv)
+  let ok = thread_runtime_wasi_set_argv_native(
+    rt.handle,
+    argv_bytes,
+    argv_bytes.length(),
+    err_ptr,
+  )
+  if ok && @wasmtime.ptr_buffer_is_null(err_ptr) {
+    Ok(())
+  } else {
+    Err(take_error_or(err_ptr, "thread_runtime_wasi_set_argv failed"))
+  }
+}
+
+///|
+/// Configure WASI to inherit argv from host process.
+pub fn thread_runtime_wasi_inherit_argv(
+  rt : ThreadRuntime,
+) -> Result[Unit, Error] {
+  let err_ptr = @wasmtime.make_ptr_buffer()
+  let ok = thread_runtime_wasi_inherit_argv_native(rt.handle, err_ptr)
+  if ok && @wasmtime.ptr_buffer_is_null(err_ptr) {
+    Ok(())
+  } else {
+    Err(take_error_or(err_ptr, "thread_runtime_wasi_inherit_argv failed"))
+  }
+}
+
+///|
+/// Configure WASI to inherit stdio from host process.
+pub fn thread_runtime_wasi_inherit_stdio(
+  rt : ThreadRuntime,
+) -> Result[Unit, Error] {
+  let err_ptr = @wasmtime.make_ptr_buffer()
+  let ok = thread_runtime_wasi_inherit_stdio_native(rt.handle, err_ptr)
+  if ok && @wasmtime.ptr_buffer_is_null(err_ptr) {
+    Ok(())
+  } else {
+    Err(take_error_or(err_ptr, "thread_runtime_wasi_inherit_stdio failed"))
   }
 }
 

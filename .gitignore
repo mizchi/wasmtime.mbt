@@ -3,6 +3,7 @@ _build/
 src/build-stamps/
 target/
 target
+dist/
 .mooncakes/
 .moonagent/
 .jj/

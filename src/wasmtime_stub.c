@@ -15,7 +15,10 @@
 #include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
+#include <dirent.h>
+#include <errno.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON
@@ -95,6 +98,9 @@ typedef uint8_t wasmtime_valkind_t;
 #define WASMTIME_FUNCREF 5
 #define WASMTIME_EXTERNREF 6
 #define WASMTIME_ANYREF 7
+#ifndef WASM_EXTERNREF
+#define WASM_EXTERNREF 128
+#endif
 
 typedef uint8_t wasmtime_v128[16];
 
@@ -212,6 +218,7 @@ void wasm_byte_vec_delete(wasm_byte_vec_t *);
 
 wasmtime_error_t *wasmtime_error_new(const char *);
 void wasmtime_error_message(const wasmtime_error_t *, wasm_byte_vec_t *);
+bool wasmtime_error_exit_status(const wasmtime_error_t *, int *);
 wasm_config_t *wasm_config_new(void);
 void wasm_config_delete(wasm_config_t *);
 wasm_engine_t *wasm_engine_new_with_config(wasm_config_t *);
@@ -221,6 +228,9 @@ void wasmtime_config_cranelift_flag_enable(wasm_config_t *, const char *);
 void wasmtime_config_cranelift_flag_set(wasm_config_t *, const char *, const char *);
 void wasmtime_config_wasm_threads_set(wasm_config_t *, bool);
 void wasmtime_config_shared_memory_set(wasm_config_t *, bool);
+void wasmtime_config_wasm_gc_set(wasm_config_t *, bool);
+void wasmtime_config_wasm_reference_types_set(wasm_config_t *, bool);
+void wasmtime_config_wasm_function_references_set(wasm_config_t *, bool);
 wasmtime_store_t *wasmtime_store_new(wasm_engine_t *, void *, void (*)(void *));
 void wasmtime_store_delete(wasmtime_store_t *);
 wasmtime_context_t *wasmtime_store_context(wasmtime_store_t *);
@@ -263,6 +273,13 @@ wasmtime_error_t *wasmtime_module_new(
   wasmtime_module_t **
 );
 void wasmtime_module_delete(wasmtime_module_t *);
+wasmtime_error_t *wasmtime_module_serialize(wasmtime_module_t *, wasm_byte_vec_t *);
+wasmtime_error_t *wasmtime_module_deserialize(
+  wasm_engine_t *,
+  const uint8_t *,
+  size_t,
+  wasmtime_module_t **
+);
 wasmtime_error_t *wasmtime_instance_new(
   wasmtime_context_t *,
   const wasmtime_module_t *,
@@ -288,6 +305,15 @@ wasmtime_error_t *wasmtime_func_call(
   size_t,
   wasm_trap_t **
 );
+wasmtime_context_t *wasmtime_caller_context(wasmtime_caller_t *);
+bool wasmtime_externref_new(
+  wasmtime_context_t *,
+  void *,
+  void (*)(void *),
+  wasmtime_externref_t *
+);
+void *wasmtime_externref_data(wasmtime_context_t *, const wasmtime_externref_t *);
+void wasmtime_externref_unroot(wasmtime_externref_t *);
 wasmtime_linker_t *wasmtime_linker_new(wasm_engine_t *);
 void wasmtime_linker_delete(wasmtime_linker_t *);
 wasmtime_error_t *wasmtime_linker_define_wasi(wasmtime_linker_t *);
@@ -312,6 +338,8 @@ void wasi_config_delete(wasi_config_t *);
 bool wasi_config_set_stdin_file(wasi_config_t *, const char *);
 bool wasi_config_set_stdout_file(wasi_config_t *, const char *);
 bool wasi_config_set_stderr_file(wasi_config_t *, const char *);
+bool wasi_config_set_argv(wasi_config_t *, size_t, const char *[]);
+void wasi_config_inherit_argv(wasi_config_t *);
 void wasi_config_inherit_stdout(wasi_config_t *);
 void wasi_config_inherit_stderr(wasi_config_t *);
 void wasi_config_inherit_stdin(wasi_config_t *);
@@ -1742,6 +1770,14 @@ typedef struct wasmtime_thread_runtime {
   wasm_engine_t *engine;
   wasmtime_sharedmemory_t *shared;
   uint64_t pages;
+  char *wasi_preopen_host;
+  char *wasi_preopen_guest;
+  int wasi_dir_perms;
+  int wasi_file_perms;
+  bool wasi_inherit_stdio;
+  bool wasi_inherit_argv;
+  char **wasi_argv;
+  size_t wasi_argc;
 } wasmtime_thread_runtime_t;
 
 typedef struct wasmtime_thread_task {
@@ -1752,11 +1788,1783 @@ typedef struct wasmtime_thread_task {
   size_t func_name_len;
   wasmtime_val_t *args;
   size_t nargs;
+  size_t repeat;
   wasmtime_error_t *error;
   atomic_bool done;
   atomic_bool detached;
   atomic_bool collected;
 } wasmtime_thread_task_t;
+
+typedef struct mbt_string {
+  uint16_t *data;
+  size_t len;
+} mbt_string_t;
+
+typedef struct mbt_string_builder {
+  uint16_t *data;
+  size_t len;
+  size_t cap;
+} mbt_string_builder_t;
+
+typedef struct mbt_string_read {
+  const mbt_string_t *str;
+  size_t index;
+} mbt_string_read_t;
+
+typedef struct mbt_string_array {
+  char **items;
+  size_t len;
+} mbt_string_array_t;
+
+typedef struct mbt_string_array_read {
+  const mbt_string_array_t *arr;
+  size_t index;
+} mbt_string_array_read_t;
+
+typedef struct mbt_byte_array {
+  uint8_t *data;
+  size_t len;
+} mbt_byte_array_t;
+
+typedef struct mbt_byte_array_builder {
+  uint8_t *data;
+  size_t len;
+  size_t cap;
+} mbt_byte_array_builder_t;
+
+typedef struct mbt_byte_array_read {
+  const mbt_byte_array_t *arr;
+  size_t index;
+} mbt_byte_array_read_t;
+
+typedef struct mbt_fs_host {
+  wasmtime_thread_runtime_t *runtime;
+  char *error_message;
+  uint8_t *last_file;
+  size_t last_file_len;
+  char **last_dir_entries;
+  size_t last_dir_len;
+} mbt_fs_host_t;
+
+static mbt_string_t *mbt_string_new(uint16_t *data, size_t len) {
+  mbt_string_t *s = (mbt_string_t *)malloc(sizeof(mbt_string_t));
+  if (s == NULL) {
+    free(data);
+    return NULL;
+  }
+  s->data = data;
+  s->len = len;
+  return s;
+}
+
+static mbt_string_t *mbt_string_from_utf16(const uint16_t *data, size_t len) {
+  uint16_t *buf = NULL;
+  if (len > 0) {
+    buf = (uint16_t *)malloc(sizeof(uint16_t) * len);
+    if (buf == NULL) {
+      return NULL;
+    }
+    memcpy(buf, data, sizeof(uint16_t) * len);
+  }
+  return mbt_string_new(buf, len);
+}
+
+static mbt_string_t *mbt_string_from_utf8(const char *s) {
+  if (s == NULL) {
+    return mbt_string_new(NULL, 0);
+  }
+  size_t len = strlen(s);
+  uint16_t *buf = (uint16_t *)malloc(sizeof(uint16_t) * (len + 1));
+  if (buf == NULL) {
+    return NULL;
+  }
+  size_t out_len = 0;
+  size_t i = 0;
+  while (i < len) {
+    uint8_t c = (uint8_t)s[i];
+    uint32_t code = 0;
+    size_t extra = 0;
+    if (c < 0x80) {
+      code = c;
+      extra = 0;
+    } else if ((c & 0xE0) == 0xC0 && i + 1 < len) {
+      code = ((uint32_t)(c & 0x1F) << 6) | (uint32_t)(s[i + 1] & 0x3F);
+      extra = 1;
+    } else if ((c & 0xF0) == 0xE0 && i + 2 < len) {
+      code = ((uint32_t)(c & 0x0F) << 12) |
+             ((uint32_t)(s[i + 1] & 0x3F) << 6) |
+             (uint32_t)(s[i + 2] & 0x3F);
+      extra = 2;
+    } else if ((c & 0xF8) == 0xF0 && i + 3 < len) {
+      code = ((uint32_t)(c & 0x07) << 18) |
+             ((uint32_t)(s[i + 1] & 0x3F) << 12) |
+             ((uint32_t)(s[i + 2] & 0x3F) << 6) |
+             (uint32_t)(s[i + 3] & 0x3F);
+      extra = 3;
+    } else {
+      code = 0xFFFD;
+      extra = 0;
+    }
+    i += extra + 1;
+    if (code <= 0xFFFF) {
+      buf[out_len++] = (uint16_t)code;
+    } else {
+      code -= 0x10000;
+      buf[out_len++] = (uint16_t)(0xD800 + (code >> 10));
+      buf[out_len++] = (uint16_t)(0xDC00 + (code & 0x3FF));
+    }
+  }
+  return mbt_string_new(buf, out_len);
+}
+
+static char *mbt_string_to_utf8(const mbt_string_t *s) {
+  if (s == NULL || s->len == 0) {
+    char *out = (char *)malloc(1);
+    if (out != NULL) {
+      out[0] = '\0';
+    }
+    return out;
+  }
+  size_t cap = s->len * 4 + 1;
+  char *out = (char *)malloc(cap);
+  if (out == NULL) {
+    return NULL;
+  }
+  size_t out_len = 0;
+  size_t i = 0;
+  while (i < s->len) {
+    uint32_t code = s->data[i];
+    if (code >= 0xD800 && code <= 0xDBFF && i + 1 < s->len) {
+      uint32_t low = s->data[i + 1];
+      if (low >= 0xDC00 && low <= 0xDFFF) {
+        code = 0x10000 + (((code - 0xD800) << 10) | (low - 0xDC00));
+        i += 1;
+      }
+    }
+    if (code <= 0x7F) {
+      out[out_len++] = (char)code;
+    } else if (code <= 0x7FF) {
+      out[out_len++] = (char)(0xC0 | (code >> 6));
+      out[out_len++] = (char)(0x80 | (code & 0x3F));
+    } else if (code <= 0xFFFF) {
+      out[out_len++] = (char)(0xE0 | (code >> 12));
+      out[out_len++] = (char)(0x80 | ((code >> 6) & 0x3F));
+      out[out_len++] = (char)(0x80 | (code & 0x3F));
+    } else {
+      out[out_len++] = (char)(0xF0 | (code >> 18));
+      out[out_len++] = (char)(0x80 | ((code >> 12) & 0x3F));
+      out[out_len++] = (char)(0x80 | ((code >> 6) & 0x3F));
+      out[out_len++] = (char)(0x80 | (code & 0x3F));
+    }
+    i += 1;
+  }
+  out[out_len] = '\0';
+  return out;
+}
+
+static void mbt_string_free(void *ptr) {
+  mbt_string_t *s = (mbt_string_t *)ptr;
+  if (s == NULL) {
+    return;
+  }
+  free(s->data);
+  free(s);
+}
+
+static mbt_string_builder_t *mbt_string_builder_new(void) {
+  mbt_string_builder_t *b =
+    (mbt_string_builder_t *)calloc(1, sizeof(mbt_string_builder_t));
+  return b;
+}
+
+static bool mbt_string_builder_push(mbt_string_builder_t *b, uint16_t ch) {
+  if (b == NULL) {
+    return false;
+  }
+  if (b->len + 1 > b->cap) {
+    size_t next_cap = b->cap == 0 ? 16 : b->cap * 2;
+    uint16_t *next = (uint16_t *)realloc(b->data, next_cap * sizeof(uint16_t));
+    if (next == NULL) {
+      return false;
+    }
+    b->data = next;
+    b->cap = next_cap;
+  }
+  b->data[b->len] = ch;
+  b->len += 1;
+  return true;
+}
+
+static mbt_string_t *mbt_string_builder_finish(mbt_string_builder_t *b) {
+  if (b == NULL) {
+    return NULL;
+  }
+  mbt_string_t *s = mbt_string_new(b->data, b->len);
+  free(b);
+  return s;
+}
+
+static void mbt_string_builder_free(mbt_string_builder_t *b) {
+  if (b == NULL) {
+    return;
+  }
+  free(b->data);
+  free(b);
+}
+
+static mbt_byte_array_t *mbt_byte_array_new(const uint8_t *data, size_t len) {
+  uint8_t *buf = NULL;
+  if (len > 0) {
+    buf = (uint8_t *)malloc(len);
+    if (buf == NULL) {
+      return NULL;
+    }
+    memcpy(buf, data, len);
+  }
+  mbt_byte_array_t *arr = (mbt_byte_array_t *)malloc(sizeof(mbt_byte_array_t));
+  if (arr == NULL) {
+    free(buf);
+    return NULL;
+  }
+  arr->data = buf;
+  arr->len = len;
+  return arr;
+}
+
+static void mbt_byte_array_free(void *ptr) {
+  mbt_byte_array_t *arr = (mbt_byte_array_t *)ptr;
+  if (arr == NULL) {
+    return;
+  }
+  free(arr->data);
+  free(arr);
+}
+
+static mbt_byte_array_builder_t *mbt_byte_array_builder_new(void) {
+  mbt_byte_array_builder_t *b =
+    (mbt_byte_array_builder_t *)calloc(1, sizeof(mbt_byte_array_builder_t));
+  return b;
+}
+
+static bool mbt_byte_array_builder_push(mbt_byte_array_builder_t *b, uint8_t ch) {
+  if (b == NULL) {
+    return false;
+  }
+  if (b->len + 1 > b->cap) {
+    size_t next_cap = b->cap == 0 ? 64 : b->cap * 2;
+    uint8_t *next = (uint8_t *)realloc(b->data, next_cap);
+    if (next == NULL) {
+      return false;
+    }
+    b->data = next;
+    b->cap = next_cap;
+  }
+  b->data[b->len] = ch;
+  b->len += 1;
+  return true;
+}
+
+static mbt_byte_array_t *mbt_byte_array_builder_finish(mbt_byte_array_builder_t *b) {
+  if (b == NULL) {
+    return NULL;
+  }
+  mbt_byte_array_t *arr = (mbt_byte_array_t *)malloc(sizeof(mbt_byte_array_t));
+  if (arr == NULL) {
+    free(b->data);
+    free(b);
+    return NULL;
+  }
+  arr->data = b->data;
+  arr->len = b->len;
+  free(b);
+  return arr;
+}
+
+static void mbt_byte_array_builder_free(mbt_byte_array_builder_t *b) {
+  if (b == NULL) {
+    return;
+  }
+  free(b->data);
+  free(b);
+}
+
+static mbt_string_array_t *mbt_string_array_new(char **items, size_t len) {
+  mbt_string_array_t *arr = (mbt_string_array_t *)malloc(sizeof(mbt_string_array_t));
+  if (arr == NULL) {
+    return NULL;
+  }
+  arr->items = items;
+  arr->len = len;
+  return arr;
+}
+
+static void mbt_string_array_free(void *ptr) {
+  mbt_string_array_t *arr = (mbt_string_array_t *)ptr;
+  if (arr == NULL) {
+    return;
+  }
+  if (arr->items != NULL) {
+    for (size_t i = 0; i < arr->len; i++) {
+      free(arr->items[i]);
+    }
+    free(arr->items);
+  }
+  free(arr);
+}
+
+static void mbt_fs_clear_error(mbt_fs_host_t *host) {
+  if (host == NULL) {
+    return;
+  }
+  if (host->error_message != NULL) {
+    free(host->error_message);
+  }
+  host->error_message = strdup("");
+}
+
+static void mbt_fs_set_error(mbt_fs_host_t *host, const char *msg) {
+  if (host == NULL) {
+    return;
+  }
+  if (host->error_message != NULL) {
+    free(host->error_message);
+  }
+  if (msg == NULL) {
+    host->error_message = strdup("");
+  } else {
+    host->error_message = strdup(msg);
+  }
+}
+
+static void mbt_fs_set_errno(mbt_fs_host_t *host, const char *context) {
+  const char *err = strerror(errno);
+  if (context == NULL || context[0] == '\0') {
+    mbt_fs_set_error(host, err);
+    return;
+  }
+  char buf[256];
+  snprintf(buf, sizeof(buf), "%s: %s", context, err);
+  mbt_fs_set_error(host, buf);
+}
+
+static void mbt_fs_clear_file(mbt_fs_host_t *host) {
+  if (host == NULL) {
+    return;
+  }
+  free(host->last_file);
+  host->last_file = NULL;
+  host->last_file_len = 0;
+}
+
+static void mbt_fs_clear_dir(mbt_fs_host_t *host) {
+  if (host == NULL) {
+    return;
+  }
+  if (host->last_dir_entries != NULL) {
+    for (size_t i = 0; i < host->last_dir_len; i++) {
+      free(host->last_dir_entries[i]);
+    }
+    free(host->last_dir_entries);
+  }
+  host->last_dir_entries = NULL;
+  host->last_dir_len = 0;
+}
+
+static mbt_fs_host_t *mbt_fs_host_new(wasmtime_thread_runtime_t *runtime) {
+  mbt_fs_host_t *host = (mbt_fs_host_t *)calloc(1, sizeof(mbt_fs_host_t));
+  if (host == NULL) {
+    return NULL;
+  }
+  host->runtime = runtime;
+  host->error_message = strdup("");
+  return host;
+}
+
+static void mbt_fs_host_free(mbt_fs_host_t *host) {
+  if (host == NULL) {
+    return;
+  }
+  mbt_fs_clear_file(host);
+  mbt_fs_clear_dir(host);
+  if (host->error_message != NULL) {
+    free(host->error_message);
+  }
+  free(host);
+}
+
+static char *mbt_fs_resolve_path(mbt_fs_host_t *host, const char *guest_path) {
+  if (guest_path == NULL) {
+    return NULL;
+  }
+  const char *root = NULL;
+  if (host != NULL && host->runtime != NULL) {
+    root = host->runtime->wasi_preopen_host;
+  }
+  if (root == NULL || guest_path[0] == '/') {
+    return strdup(guest_path);
+  }
+  size_t root_len = strlen(root);
+  size_t path_len = strlen(guest_path);
+  bool need_sep = root_len > 0 && root[root_len - 1] != '/';
+  size_t total = root_len + (need_sep ? 1 : 0) + path_len + 1;
+  char *out = (char *)malloc(total);
+  if (out == NULL) {
+    return NULL;
+  }
+  memcpy(out, root, root_len);
+  size_t pos = root_len;
+  if (need_sep) {
+    out[pos++] = '/';
+  }
+  memcpy(out + pos, guest_path, path_len);
+  out[pos + path_len] = '\0';
+  return out;
+}
+
+static void *mbt_externref_data(wasmtime_context_t *context, const wasmtime_val_t *val) {
+  if (context == NULL || val == NULL) {
+    return NULL;
+  }
+  if (val->kind != WASMTIME_EXTERNREF) {
+    return NULL;
+  }
+  if (val->of.externref.store_id == 0) {
+    return NULL;
+  }
+  return wasmtime_externref_data(context, &val->of.externref);
+}
+
+static bool mbt_set_externref_result(
+  wasmtime_caller_t *caller,
+  wasmtime_val_t *results,
+  size_t nresults,
+  void *data,
+  void (*finalizer)(void *)
+) {
+  if (results == NULL || nresults == 0) {
+    if (finalizer != NULL) {
+      finalizer(data);
+    }
+    return false;
+  }
+  if (data == NULL) {
+    memset(&results[0].of.externref, 0, sizeof(results[0].of.externref));
+    results[0].kind = WASMTIME_EXTERNREF;
+    return false;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  if (context == NULL) {
+    if (finalizer != NULL) {
+      finalizer(data);
+    }
+    return false;
+  }
+  wasmtime_externref_t ref;
+  if (!wasmtime_externref_new(context, data, finalizer, &ref)) {
+    if (finalizer != NULL) {
+      finalizer(data);
+    }
+    return false;
+  }
+  results[0].kind = WASMTIME_EXTERNREF;
+  results[0].of.externref = ref;
+  return true;
+}
+
+static void mbt_set_i32_result(wasmtime_val_t *results, size_t nresults, int32_t value) {
+  if (results == NULL || nresults == 0) {
+    return;
+  }
+  results[0].kind = WASMTIME_I32;
+  results[0].of.i32 = value;
+}
+
+static wasm_trap_t *mbt_fs_begin_create_string(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)args;
+  (void)nargs;
+  mbt_string_builder_t *builder = mbt_string_builder_new();
+  if (builder == NULL) {
+    return NULL;
+  }
+  mbt_set_externref_result(caller, results, nresults, builder, NULL);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_string_append_char(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)caller;
+  (void)results;
+  (void)nresults;
+  if (args == NULL || nargs < 2) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  mbt_string_builder_t *builder =
+    (mbt_string_builder_t *)mbt_externref_data(context, &args[0]);
+  uint16_t ch = (uint16_t)(args[1].of.i32 & 0xFFFF);
+  if (builder != NULL) {
+    mbt_string_builder_push(builder, ch);
+  }
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_finish_create_string(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  if (args == NULL || nargs < 1) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  mbt_string_builder_t *builder =
+    (mbt_string_builder_t *)mbt_externref_data(context, &args[0]);
+  mbt_string_t *str = mbt_string_builder_finish(builder);
+  if (str == NULL) {
+    str = mbt_string_new(NULL, 0);
+  }
+  mbt_set_externref_result(caller, results, nresults, str, mbt_string_free);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_begin_read_string(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  if (args == NULL || nargs < 1) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  mbt_string_read_t *handle =
+    (mbt_string_read_t *)calloc(1, sizeof(mbt_string_read_t));
+  if (handle == NULL) {
+    return NULL;
+  }
+  handle->str = str;
+  handle->index = 0;
+  mbt_set_externref_result(caller, results, nresults, handle, NULL);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_string_read_char(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  if (args == NULL || nargs < 1) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  mbt_string_read_t *handle =
+    (mbt_string_read_t *)mbt_externref_data(context, &args[0]);
+  if (handle == NULL || handle->str == NULL || handle->index >= handle->str->len) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  int32_t ch = (int32_t)handle->str->data[handle->index];
+  handle->index += 1;
+  mbt_set_i32_result(results, nresults, ch);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_finish_read_string(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)results;
+  (void)nresults;
+  if (args == NULL || nargs < 1) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  mbt_string_read_t *handle =
+    (mbt_string_read_t *)mbt_externref_data(context, &args[0]);
+  free(handle);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_begin_create_byte_array(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)args;
+  (void)nargs;
+  mbt_byte_array_builder_t *builder = mbt_byte_array_builder_new();
+  if (builder == NULL) {
+    return NULL;
+  }
+  mbt_set_externref_result(caller, results, nresults, builder, NULL);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_byte_array_append_byte(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)caller;
+  (void)results;
+  (void)nresults;
+  if (args == NULL || nargs < 2) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  mbt_byte_array_builder_t *builder =
+    (mbt_byte_array_builder_t *)mbt_externref_data(context, &args[0]);
+  uint8_t ch = (uint8_t)(args[1].of.i32 & 0xFF);
+  if (builder != NULL) {
+    mbt_byte_array_builder_push(builder, ch);
+  }
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_finish_create_byte_array(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  if (args == NULL || nargs < 1) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  mbt_byte_array_builder_t *builder =
+    (mbt_byte_array_builder_t *)mbt_externref_data(context, &args[0]);
+  mbt_byte_array_t *arr = mbt_byte_array_builder_finish(builder);
+  if (arr == NULL) {
+    arr = mbt_byte_array_new(NULL, 0);
+  }
+  mbt_set_externref_result(caller, results, nresults, arr, mbt_byte_array_free);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_begin_read_byte_array(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  if (args == NULL || nargs < 1) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_byte_array_t *arr =
+    (const mbt_byte_array_t *)mbt_externref_data(context, &args[0]);
+  mbt_byte_array_read_t *handle =
+    (mbt_byte_array_read_t *)calloc(1, sizeof(mbt_byte_array_read_t));
+  if (handle == NULL) {
+    return NULL;
+  }
+  handle->arr = arr;
+  handle->index = 0;
+  mbt_set_externref_result(caller, results, nresults, handle, NULL);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_byte_array_read_byte(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  if (args == NULL || nargs < 1) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  mbt_byte_array_read_t *handle =
+    (mbt_byte_array_read_t *)mbt_externref_data(context, &args[0]);
+  if (handle == NULL || handle->arr == NULL || handle->index >= handle->arr->len) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  int32_t ch = (int32_t)handle->arr->data[handle->index];
+  handle->index += 1;
+  mbt_set_i32_result(results, nresults, ch);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_finish_read_byte_array(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)results;
+  (void)nresults;
+  if (args == NULL || nargs < 1) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  mbt_byte_array_read_t *handle =
+    (mbt_byte_array_read_t *)mbt_externref_data(context, &args[0]);
+  free(handle);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_begin_read_string_array(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  if (args == NULL || nargs < 1) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_array_t *arr =
+    (const mbt_string_array_t *)mbt_externref_data(context, &args[0]);
+  mbt_string_array_read_t *handle =
+    (mbt_string_array_read_t *)calloc(1, sizeof(mbt_string_array_read_t));
+  if (handle == NULL) {
+    return NULL;
+  }
+  handle->arr = arr;
+  handle->index = 0;
+  mbt_set_externref_result(caller, results, nresults, handle, NULL);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_string_array_read_string(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  if (args == NULL || nargs < 1) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  mbt_string_array_read_t *handle =
+    (mbt_string_array_read_t *)mbt_externref_data(context, &args[0]);
+  const char *value = "ffi_end_of_/string_array";
+  if (handle != NULL && handle->arr != NULL && handle->index < handle->arr->len) {
+    value = handle->arr->items[handle->index];
+    handle->index += 1;
+  }
+  mbt_string_t *str = mbt_string_from_utf8(value);
+  if (str == NULL) {
+    str = mbt_string_new(NULL, 0);
+  }
+  mbt_set_externref_result(caller, results, nresults, str, mbt_string_free);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_finish_read_string_array(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)results;
+  (void)nresults;
+  if (args == NULL || nargs < 1) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  mbt_string_array_read_t *handle =
+    (mbt_string_array_read_t *)mbt_externref_data(context, &args[0]);
+  free(handle);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_get_error_message(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)args;
+  (void)nargs;
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  const char *msg = host != NULL && host->error_message != NULL ? host->error_message : "";
+  mbt_string_t *str = mbt_string_from_utf8(msg);
+  if (str == NULL) {
+    str = mbt_string_new(NULL, 0);
+  }
+  mbt_set_externref_result(caller, results, nresults, str, mbt_string_free);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_get_file_content(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)args;
+  (void)nargs;
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  mbt_byte_array_t *arr = NULL;
+  if (host != NULL && host->last_file != NULL && host->last_file_len > 0) {
+    arr = mbt_byte_array_new(host->last_file, host->last_file_len);
+  } else {
+    arr = mbt_byte_array_new(NULL, 0);
+  }
+  if (arr == NULL) {
+    arr = mbt_byte_array_new(NULL, 0);
+  }
+  mbt_set_externref_result(caller, results, nresults, arr, mbt_byte_array_free);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_get_dir_files(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)args;
+  (void)nargs;
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  size_t len = host != NULL ? host->last_dir_len : 0;
+  char **items = NULL;
+  if (len > 0) {
+    items = (char **)calloc(len, sizeof(char *));
+    if (items != NULL) {
+      for (size_t i = 0; i < len; i++) {
+        items[i] = strdup(host->last_dir_entries[i]);
+        if (items[i] == NULL) {
+          for (size_t j = 0; j < i; j++) {
+            free(items[j]);
+          }
+          free(items);
+          items = NULL;
+          len = 0;
+          break;
+        }
+      }
+    }
+  }
+  mbt_string_array_t *arr = mbt_string_array_new(items, len);
+  if (arr == NULL) {
+    if (items != NULL) {
+      for (size_t i = 0; i < len; i++) {
+        free(items[i]);
+      }
+      free(items);
+    }
+    arr = mbt_string_array_new(NULL, 0);
+  }
+  mbt_set_externref_result(caller, results, nresults, arr, mbt_string_array_free);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_read_file_to_bytes(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  if (args == NULL || nargs < 1) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *path_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  if (path_str == NULL) {
+    mbt_fs_set_error(host, "fs: invalid path");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  char *path_utf8 = mbt_string_to_utf8(path_str);
+  char *resolved = mbt_fs_resolve_path(host, path_utf8);
+  free(path_utf8);
+  if (resolved == NULL) {
+    mbt_fs_set_error(host, "fs: path resolve failed");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  FILE *fp = fopen(resolved, "rb");
+  if (fp == NULL) {
+    mbt_fs_set_errno(host, "fs: open failed");
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  if (fseek(fp, 0, SEEK_END) != 0) {
+    mbt_fs_set_errno(host, "fs: seek failed");
+    fclose(fp);
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  long size = ftell(fp);
+  if (size < 0) {
+    mbt_fs_set_errno(host, "fs: tell failed");
+    fclose(fp);
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  if (fseek(fp, 0, SEEK_SET) != 0) {
+    mbt_fs_set_errno(host, "fs: seek failed");
+    fclose(fp);
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  uint8_t *buf = NULL;
+  size_t len = (size_t)size;
+  if (len > 0) {
+    buf = (uint8_t *)malloc(len);
+    if (buf == NULL) {
+      mbt_fs_set_error(host, "fs: alloc failed");
+      fclose(fp);
+      free(resolved);
+      mbt_set_i32_result(results, nresults, -1);
+      return NULL;
+    }
+    size_t read_len = fread(buf, 1, len, fp);
+    if (read_len != len) {
+      mbt_fs_set_errno(host, "fs: read failed");
+      free(buf);
+      fclose(fp);
+      free(resolved);
+      mbt_set_i32_result(results, nresults, -1);
+      return NULL;
+    }
+  }
+  fclose(fp);
+  free(resolved);
+  mbt_fs_clear_file(host);
+  host->last_file = buf;
+  host->last_file_len = len;
+  mbt_fs_clear_error(host);
+  mbt_set_i32_result(results, nresults, 0);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_write_bytes_to_file(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  if (args == NULL || nargs < 2) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *path_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  const mbt_byte_array_t *bytes =
+    (const mbt_byte_array_t *)mbt_externref_data(context, &args[1]);
+  if (path_str == NULL || bytes == NULL) {
+    mbt_fs_set_error(host, "fs: invalid args");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  char *path_utf8 = mbt_string_to_utf8(path_str);
+  char *resolved = mbt_fs_resolve_path(host, path_utf8);
+  free(path_utf8);
+  if (resolved == NULL) {
+    mbt_fs_set_error(host, "fs: path resolve failed");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  FILE *fp = fopen(resolved, "wb");
+  if (fp == NULL) {
+    mbt_fs_set_errno(host, "fs: open failed");
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  size_t written = 0;
+  if (bytes->len > 0) {
+    written = fwrite(bytes->data, 1, bytes->len, fp);
+  }
+  if (written != bytes->len) {
+    mbt_fs_set_errno(host, "fs: write failed");
+    fclose(fp);
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  fclose(fp);
+  free(resolved);
+  mbt_fs_clear_error(host);
+  mbt_set_i32_result(results, nresults, 0);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_path_exists(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  if (args == NULL || nargs < 1) {
+    mbt_set_i32_result(results, nresults, 0);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *path_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  if (path_str == NULL) {
+    mbt_set_i32_result(results, nresults, 0);
+    return NULL;
+  }
+  char *path_utf8 = mbt_string_to_utf8(path_str);
+  char *resolved = mbt_fs_resolve_path((mbt_fs_host_t *)env, path_utf8);
+  free(path_utf8);
+  if (resolved == NULL) {
+    mbt_set_i32_result(results, nresults, 0);
+    return NULL;
+  }
+  struct stat st;
+  int ok = stat(resolved, &st) == 0;
+  free(resolved);
+  mbt_set_i32_result(results, nresults, ok ? 1 : 0);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_create_dir(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  if (args == NULL || nargs < 1) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *path_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  if (path_str == NULL) {
+    mbt_fs_set_error(host, "fs: invalid path");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  char *path_utf8 = mbt_string_to_utf8(path_str);
+  char *resolved = mbt_fs_resolve_path(host, path_utf8);
+  free(path_utf8);
+  if (resolved == NULL) {
+    mbt_fs_set_error(host, "fs: path resolve failed");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  int res = mkdir(resolved, 0777);
+  if (res != 0) {
+    mbt_fs_set_errno(host, "fs: mkdir failed");
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  free(resolved);
+  mbt_fs_clear_error(host);
+  mbt_set_i32_result(results, nresults, 0);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_read_dir(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  if (args == NULL || nargs < 1) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *path_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  if (path_str == NULL) {
+    mbt_fs_set_error(host, "fs: invalid path");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  char *path_utf8 = mbt_string_to_utf8(path_str);
+  char *resolved = mbt_fs_resolve_path(host, path_utf8);
+  free(path_utf8);
+  if (resolved == NULL) {
+    mbt_fs_set_error(host, "fs: path resolve failed");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  DIR *dir = opendir(resolved);
+  if (dir == NULL) {
+    mbt_fs_set_errno(host, "fs: opendir failed");
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  size_t cap = 16;
+  size_t len = 0;
+  char **entries = (char **)calloc(cap, sizeof(char *));
+  if (entries == NULL) {
+    closedir(dir);
+    free(resolved);
+    mbt_fs_set_error(host, "fs: alloc failed");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  struct dirent *entry = NULL;
+  while ((entry = readdir(dir)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+    if (len + 1 > cap) {
+      size_t next_cap = cap * 2;
+      char **next = (char **)realloc(entries, next_cap * sizeof(char *));
+      if (next == NULL) {
+        mbt_fs_set_error(host, "fs: alloc failed");
+        for (size_t i = 0; i < len; i++) {
+          free(entries[i]);
+        }
+        free(entries);
+        closedir(dir);
+        free(resolved);
+        mbt_set_i32_result(results, nresults, -1);
+        return NULL;
+      }
+      entries = next;
+      cap = next_cap;
+    }
+    entries[len] = strdup(entry->d_name);
+    if (entries[len] == NULL) {
+      mbt_fs_set_error(host, "fs: alloc failed");
+      for (size_t i = 0; i < len; i++) {
+        free(entries[i]);
+      }
+      free(entries);
+      closedir(dir);
+      free(resolved);
+      mbt_set_i32_result(results, nresults, -1);
+      return NULL;
+    }
+    len += 1;
+  }
+  closedir(dir);
+  free(resolved);
+  mbt_fs_clear_dir(host);
+  host->last_dir_entries = entries;
+  host->last_dir_len = len;
+  mbt_fs_clear_error(host);
+  mbt_set_i32_result(results, nresults, 0);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_is_file(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  if (args == NULL || nargs < 1) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *path_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  if (path_str == NULL) {
+    mbt_fs_set_error(host, "fs: invalid path");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  char *path_utf8 = mbt_string_to_utf8(path_str);
+  char *resolved = mbt_fs_resolve_path(host, path_utf8);
+  free(path_utf8);
+  if (resolved == NULL) {
+    mbt_fs_set_error(host, "fs: path resolve failed");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  struct stat st;
+  if (stat(resolved, &st) != 0) {
+    mbt_fs_set_errno(host, "fs: stat failed");
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  free(resolved);
+  mbt_fs_clear_error(host);
+  mbt_set_i32_result(results, nresults, S_ISREG(st.st_mode) ? 1 : 0);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_is_dir(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  if (args == NULL || nargs < 1) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *path_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  if (path_str == NULL) {
+    mbt_fs_set_error(host, "fs: invalid path");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  char *path_utf8 = mbt_string_to_utf8(path_str);
+  char *resolved = mbt_fs_resolve_path(host, path_utf8);
+  free(path_utf8);
+  if (resolved == NULL) {
+    mbt_fs_set_error(host, "fs: path resolve failed");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  struct stat st;
+  if (stat(resolved, &st) != 0) {
+    mbt_fs_set_errno(host, "fs: stat failed");
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  free(resolved);
+  mbt_fs_clear_error(host);
+  mbt_set_i32_result(results, nresults, S_ISDIR(st.st_mode) ? 1 : 0);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_remove_file(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  if (args == NULL || nargs < 1) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *path_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  if (path_str == NULL) {
+    mbt_fs_set_error(host, "fs: invalid path");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  char *path_utf8 = mbt_string_to_utf8(path_str);
+  char *resolved = mbt_fs_resolve_path(host, path_utf8);
+  free(path_utf8);
+  if (resolved == NULL) {
+    mbt_fs_set_error(host, "fs: path resolve failed");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  int res = remove(resolved);
+  if (res != 0) {
+    mbt_fs_set_errno(host, "fs: remove failed");
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  free(resolved);
+  mbt_fs_clear_error(host);
+  mbt_set_i32_result(results, nresults, 0);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_remove_dir(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  if (args == NULL || nargs < 1) {
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *path_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  if (path_str == NULL) {
+    mbt_fs_set_error(host, "fs: invalid path");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  char *path_utf8 = mbt_string_to_utf8(path_str);
+  char *resolved = mbt_fs_resolve_path(host, path_utf8);
+  free(path_utf8);
+  if (resolved == NULL) {
+    mbt_fs_set_error(host, "fs: path resolve failed");
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  int res = rmdir(resolved);
+  if (res != 0) {
+    mbt_fs_set_errno(host, "fs: rmdir failed");
+    free(resolved);
+    mbt_set_i32_result(results, nresults, -1);
+    return NULL;
+  }
+  free(resolved);
+  mbt_fs_clear_error(host);
+  mbt_set_i32_result(results, nresults, 0);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_args_get(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)args;
+  (void)nargs;
+  mbt_fs_host_t *host = (mbt_fs_host_t *)env;
+  size_t len = 0;
+  char **items = NULL;
+  if (host != NULL && host->runtime != NULL && host->runtime->wasi_argc > 0) {
+    len = host->runtime->wasi_argc;
+    items = (char **)calloc(len, sizeof(char *));
+    if (items != NULL) {
+      for (size_t i = 0; i < len; i++) {
+        items[i] = strdup(host->runtime->wasi_argv[i]);
+        if (items[i] == NULL) {
+          for (size_t j = 0; j < i; j++) {
+            free(items[j]);
+          }
+          free(items);
+          items = NULL;
+          len = 0;
+          break;
+        }
+      }
+    } else {
+      len = 0;
+    }
+  }
+  mbt_string_array_t *arr = mbt_string_array_new(items, len);
+  if (arr == NULL) {
+    if (items != NULL) {
+      for (size_t i = 0; i < len; i++) {
+        free(items[i]);
+      }
+      free(items);
+    }
+    arr = mbt_string_array_new(NULL, 0);
+  }
+  mbt_set_externref_result(caller, results, nresults, arr, mbt_string_array_free);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_current_dir(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)args;
+  (void)nargs;
+  char buf[PATH_MAX];
+  const char *dir = getcwd(buf, sizeof(buf)) != NULL ? buf : "";
+  mbt_string_t *str = mbt_string_from_utf8(dir);
+  if (str == NULL) {
+    str = mbt_string_new(NULL, 0);
+  }
+  mbt_set_externref_result(caller, results, nresults, str, mbt_string_free);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_get_env_var(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  if (args == NULL || nargs < 1) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *key_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  char *key = mbt_string_to_utf8(key_str);
+  const char *val = key != NULL ? getenv(key) : NULL;
+  mbt_string_t *str = mbt_string_from_utf8(val != NULL ? val : "");
+  free(key);
+  if (str == NULL) {
+    str = mbt_string_new(NULL, 0);
+  }
+  mbt_set_externref_result(caller, results, nresults, str, mbt_string_free);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_get_env_var_exists(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  if (args == NULL || nargs < 1) {
+    mbt_set_i32_result(results, nresults, 0);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *key_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  char *key = mbt_string_to_utf8(key_str);
+  int ok = 0;
+  if (key != NULL) {
+    ok = getenv(key) != NULL ? 1 : 0;
+  }
+  free(key);
+  mbt_set_i32_result(results, nresults, ok);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_get_env_vars(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)args;
+  (void)nargs;
+  extern char **environ;
+  size_t count = 0;
+  if (environ != NULL) {
+    while (environ[count] != NULL) {
+      count++;
+    }
+  }
+  char **items = NULL;
+  size_t len = 0;
+  if (count > 0) {
+    items = (char **)calloc(count * 2, sizeof(char *));
+    if (items != NULL) {
+      for (size_t i = 0; i < count; i++) {
+        char *entry = environ[i];
+        char *eq = strchr(entry, '=');
+        if (eq == NULL) {
+          items[len++] = strdup(entry);
+          items[len++] = strdup("");
+        } else {
+          size_t key_len = (size_t)(eq - entry);
+          char *key = (char *)malloc(key_len + 1);
+          if (key != NULL) {
+            memcpy(key, entry, key_len);
+            key[key_len] = '\0';
+          }
+          char *val = strdup(eq + 1);
+          items[len++] = key != NULL ? key : strdup("");
+          items[len++] = val != NULL ? val : strdup("");
+        }
+      }
+    }
+  }
+  mbt_string_array_t *arr = mbt_string_array_new(items, len);
+  if (arr == NULL) {
+    if (items != NULL) {
+      for (size_t i = 0; i < len; i++) {
+        free(items[i]);
+      }
+      free(items);
+    }
+    arr = mbt_string_array_new(NULL, 0);
+  }
+  mbt_set_externref_result(caller, results, nresults, arr, mbt_string_array_free);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_set_env_var(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)results;
+  (void)nresults;
+  if (args == NULL || nargs < 2) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *key_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  const mbt_string_t *val_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[1]);
+  char *key = mbt_string_to_utf8(key_str);
+  char *val = mbt_string_to_utf8(val_str);
+  if (key != NULL && val != NULL) {
+    setenv(key, val, 1);
+  }
+  free(key);
+  free(val);
+  return NULL;
+}
+
+static wasm_trap_t *mbt_fs_unset_env_var(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)results;
+  (void)nresults;
+  if (args == NULL || nargs < 1) {
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_caller_context(caller);
+  const mbt_string_t *key_str =
+    (const mbt_string_t *)mbt_externref_data(context, &args[0]);
+  char *key = mbt_string_to_utf8(key_str);
+  if (key != NULL) {
+    unsetenv(key);
+  }
+  free(key);
+  return NULL;
+}
+
+static wasmtime_error_t *mbt_define_fs_func(
+  wasmtime_linker_t *linker,
+  wasmtime_context_t *context,
+  const char *module,
+  size_t module_len,
+  const char *name,
+  const uint8_t *params,
+  int32_t nparams,
+  const uint8_t *results,
+  int32_t nresults,
+  wasmtime_func_callback_t cb,
+  void *env
+) {
+  wasm_functype_t *ty = wasmtime_functype_new_from_kinds(params, nparams, results, nresults);
+  if (ty == NULL) {
+    return wasmtime_error_new("fs: functype_new failed");
+  }
+  wasmtime_func_t func;
+  wasmtime_func_new(context, ty, cb, env, NULL, &func);
+  wasm_functype_delete(ty);
+  wasmtime_extern_t item;
+  item.kind = WASMTIME_EXTERN_FUNC;
+  item.of.func = func;
+  return wasmtime_linker_define(
+    linker,
+    context,
+    module,
+    module_len,
+    name,
+    strlen(name),
+    &item
+  );
+}
+
+static wasmtime_error_t *mbt_define_moonbit_fs_unstable(
+  wasmtime_linker_t *linker,
+  wasmtime_context_t *context,
+  mbt_fs_host_t *host
+) {
+  if (linker == NULL || context == NULL) {
+    return wasmtime_error_new("fs: linker/context missing");
+  }
+  const char *module = "__moonbit_fs_unstable";
+  size_t module_len = strlen(module);
+  uint8_t params_ref[1] = { WASM_EXTERNREF };
+  uint8_t params_ref_ref[2] = { WASM_EXTERNREF, WASM_EXTERNREF };
+  uint8_t params_ref_i32[2] = { WASM_EXTERNREF, WASMTIME_I32 };
+  uint8_t results_ref[1] = { WASM_EXTERNREF };
+  uint8_t results_i32[1] = { WASMTIME_I32 };
+  wasmtime_error_t *err = NULL;
+
+#define DEFINE_FS(name, params, nparams, results, nresults, cb) \
+  do { \
+    err = mbt_define_fs_func( \
+      linker, context, module, module_len, name, params, nparams, results, nresults, cb, host \
+    ); \
+    if (err != NULL) { \
+      return err; \
+    } \
+  } while (0)
+
+  DEFINE_FS("begin_create_string", NULL, 0, results_ref, 1, mbt_fs_begin_create_string);
+  DEFINE_FS("string_append_char", params_ref_i32, 2, NULL, 0, mbt_fs_string_append_char);
+  DEFINE_FS("finish_create_string", params_ref, 1, results_ref, 1, mbt_fs_finish_create_string);
+  DEFINE_FS("begin_read_string", params_ref, 1, results_ref, 1, mbt_fs_begin_read_string);
+  DEFINE_FS("string_read_char", params_ref, 1, results_i32, 1, mbt_fs_string_read_char);
+  DEFINE_FS("finish_read_string", params_ref, 1, NULL, 0, mbt_fs_finish_read_string);
+
+  DEFINE_FS("begin_create_byte_array", NULL, 0, results_ref, 1, mbt_fs_begin_create_byte_array);
+  DEFINE_FS("byte_array_append_byte", params_ref_i32, 2, NULL, 0, mbt_fs_byte_array_append_byte);
+  DEFINE_FS("finish_create_byte_array", params_ref, 1, results_ref, 1, mbt_fs_finish_create_byte_array);
+  DEFINE_FS("begin_read_byte_array", params_ref, 1, results_ref, 1, mbt_fs_begin_read_byte_array);
+  DEFINE_FS("byte_array_read_byte", params_ref, 1, results_i32, 1, mbt_fs_byte_array_read_byte);
+  DEFINE_FS("finish_read_byte_array", params_ref, 1, NULL, 0, mbt_fs_finish_read_byte_array);
+
+  DEFINE_FS("begin_read_string_array", params_ref, 1, results_ref, 1, mbt_fs_begin_read_string_array);
+  DEFINE_FS("string_array_read_string", params_ref, 1, results_ref, 1, mbt_fs_string_array_read_string);
+  DEFINE_FS("finish_read_string_array", params_ref, 1, NULL, 0, mbt_fs_finish_read_string_array);
+
+  DEFINE_FS("get_error_message", NULL, 0, results_ref, 1, mbt_fs_get_error_message);
+  DEFINE_FS("get_file_content", NULL, 0, results_ref, 1, mbt_fs_get_file_content);
+  DEFINE_FS("get_dir_files", NULL, 0, results_ref, 1, mbt_fs_get_dir_files);
+
+  DEFINE_FS("read_file_to_bytes_new", params_ref, 1, results_i32, 1, mbt_fs_read_file_to_bytes);
+  DEFINE_FS("write_bytes_to_file_new", params_ref_ref, 2, results_i32, 1, mbt_fs_write_bytes_to_file);
+  DEFINE_FS("path_exists", params_ref, 1, results_i32, 1, mbt_fs_path_exists);
+  DEFINE_FS("create_dir_new", params_ref, 1, results_i32, 1, mbt_fs_create_dir);
+  DEFINE_FS("read_dir_new", params_ref, 1, results_i32, 1, mbt_fs_read_dir);
+  DEFINE_FS("is_file_new", params_ref, 1, results_i32, 1, mbt_fs_is_file);
+  DEFINE_FS("is_dir_new", params_ref, 1, results_i32, 1, mbt_fs_is_dir);
+  DEFINE_FS("remove_file_new", params_ref, 1, results_i32, 1, mbt_fs_remove_file);
+  DEFINE_FS("remove_dir_new", params_ref, 1, results_i32, 1, mbt_fs_remove_dir);
+
+  DEFINE_FS("args_get", NULL, 0, results_ref, 1, mbt_fs_args_get);
+  DEFINE_FS("current_dir", NULL, 0, results_ref, 1, mbt_fs_current_dir);
+  DEFINE_FS("get_env_var", params_ref, 1, results_ref, 1, mbt_fs_get_env_var);
+  DEFINE_FS("get_env_var_exists", params_ref, 1, results_i32, 1, mbt_fs_get_env_var_exists);
+  DEFINE_FS("get_env_vars", NULL, 0, results_ref, 1, mbt_fs_get_env_vars);
+  DEFINE_FS("set_env_var", params_ref_ref, 2, NULL, 0, mbt_fs_set_env_var);
+  DEFINE_FS("unset_env_var", params_ref, 1, NULL, 0, mbt_fs_unset_env_var);
+
+#undef DEFINE_FS
+
+  return NULL;
+}
+
+static void wasmtime_thread_runtime_clear_argv(wasmtime_thread_runtime_t *runtime) {
+  if (runtime == NULL || runtime->wasi_argv == NULL) {
+    return;
+  }
+  for (size_t i = 0; i < runtime->wasi_argc; i++) {
+    free(runtime->wasi_argv[i]);
+  }
+  free(runtime->wasi_argv);
+  runtime->wasi_argv = NULL;
+  runtime->wasi_argc = 0;
+}
+
+static void wasmtime_thread_runtime_clear_preopen(wasmtime_thread_runtime_t *runtime) {
+  if (runtime == NULL) {
+    return;
+  }
+  if (runtime->wasi_preopen_host != NULL) {
+    free(runtime->wasi_preopen_host);
+    runtime->wasi_preopen_host = NULL;
+  }
+  if (runtime->wasi_preopen_guest != NULL) {
+    free(runtime->wasi_preopen_guest);
+    runtime->wasi_preopen_guest = NULL;
+  }
+}
 
 static void wasmtime_thread_task_set_error(
   wasmtime_thread_task_t *task,
@@ -1811,6 +3619,8 @@ static void wasmtime_thread_task_mark_done(wasmtime_thread_task_t *task) {
 
 static void *wasmtime_thread_main(void *arg) {
   wasmtime_thread_task_t *task = (wasmtime_thread_task_t *)arg;
+  mbt_fs_host_t *fs_host = NULL;
+  wasmtime_error_t *err = NULL;
   if (task == NULL || task->runtime == NULL || task->runtime->engine == NULL) {
     wasmtime_thread_task_set_error(task, NULL, "thread: runtime invalid");
     goto done;
@@ -1831,6 +3641,20 @@ static void *wasmtime_thread_main(void *arg) {
     wasmtime_thread_task_set_error(task, NULL, "thread: linker_new failed");
     goto done;
   }
+  fs_host = mbt_fs_host_new(task->runtime);
+  if (fs_host == NULL) {
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    wasmtime_thread_task_set_error(task, NULL, "thread: fs host alloc failed");
+    goto done;
+  }
+  err = mbt_define_moonbit_fs_unstable(linker, context, fs_host);
+  if (err != NULL) {
+    wasmtime_thread_task_set_error(task, err, NULL);
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    goto done;
+  }
   wasmtime_sharedmemory_t *shared = wasmtime_sharedmemory_clone(task->runtime->shared);
   if (shared == NULL) {
     wasmtime_linker_delete(linker);
@@ -1841,7 +3665,7 @@ static void *wasmtime_thread_main(void *arg) {
   wasmtime_extern_t mem_extern;
   mem_extern.kind = WASMTIME_EXTERN_SHAREDMEMORY;
   mem_extern.of.sharedmemory = shared;
-  wasmtime_error_t *err = wasmtime_linker_define(
+  err = wasmtime_linker_define(
     linker,
     context,
     "env",
@@ -1856,6 +3680,74 @@ static void *wasmtime_thread_main(void *arg) {
     wasmtime_linker_delete(linker);
     wasmtime_store_delete(store);
     goto done;
+  }
+  wasi_config_t *wasi_config = NULL;
+  if (task->runtime->wasi_preopen_host != NULL || task->runtime->wasi_inherit_stdio ||
+      task->runtime->wasi_inherit_argv || task->runtime->wasi_argc > 0) {
+    wasi_config = wasi_config_new();
+    if (wasi_config == NULL) {
+      wasmtime_thread_task_set_error(task, NULL, "thread: wasi_config_new failed");
+      wasmtime_sharedmemory_delete(shared);
+      wasmtime_linker_delete(linker);
+      wasmtime_store_delete(store);
+      goto done;
+    }
+    if (task->runtime->wasi_inherit_stdio) {
+      wasi_config_inherit_stdin(wasi_config);
+      wasi_config_inherit_stdout(wasi_config);
+      wasi_config_inherit_stderr(wasi_config);
+    }
+    if (task->runtime->wasi_inherit_argv) {
+      wasi_config_inherit_argv(wasi_config);
+    } else if (task->runtime->wasi_argc > 0) {
+      if (!wasi_config_set_argv(
+            wasi_config,
+            task->runtime->wasi_argc,
+            (const char **)task->runtime->wasi_argv
+          )) {
+        wasmtime_thread_task_set_error(task, NULL, "thread: wasi_config_set_argv failed");
+        wasi_config_delete(wasi_config);
+        wasmtime_sharedmemory_delete(shared);
+        wasmtime_linker_delete(linker);
+        wasmtime_store_delete(store);
+        goto done;
+      }
+    }
+    if (task->runtime->wasi_preopen_host != NULL) {
+      const char *guest_path =
+        task->runtime->wasi_preopen_guest != NULL ? task->runtime->wasi_preopen_guest : ".";
+      if (!wasi_config_preopen_dir(
+            wasi_config,
+            task->runtime->wasi_preopen_host,
+            guest_path,
+            (size_t)task->runtime->wasi_dir_perms,
+            (size_t)task->runtime->wasi_file_perms
+          )) {
+        wasmtime_thread_task_set_error(task, NULL, "thread: wasi_config_preopen_dir failed");
+        wasi_config_delete(wasi_config);
+        wasmtime_sharedmemory_delete(shared);
+        wasmtime_linker_delete(linker);
+        wasmtime_store_delete(store);
+        goto done;
+      }
+    }
+    err = wasmtime_context_set_wasi(context, wasi_config);
+    if (err != NULL) {
+      wasmtime_thread_task_set_error(task, err, NULL);
+      wasmtime_sharedmemory_delete(shared);
+      wasmtime_linker_delete(linker);
+      wasmtime_store_delete(store);
+      goto done;
+    }
+    wasi_config = NULL;
+    err = wasmtime_linker_define_wasi(linker);
+    if (err != NULL) {
+      wasmtime_thread_task_set_error(task, err, NULL);
+      wasmtime_sharedmemory_delete(shared);
+      wasmtime_linker_delete(linker);
+      wasmtime_store_delete(store);
+      goto done;
+    }
   }
   wasmtime_instance_t instance;
   wasm_trap_t *trap = NULL;
@@ -1897,18 +3789,39 @@ static void *wasmtime_thread_main(void *arg) {
     goto done;
   }
   wasmtime_func_t func = item.of.func;
-  trap = NULL;
-  err = wasmtime_func_call(
-    context,
-    &func,
-    task->args,
-    task->nargs,
-    NULL,
-    0,
-    &trap
-  );
-  if (trap != NULL) {
-    wasm_trap_delete(trap);
+  size_t repeat = task->repeat == 0 ? 1 : task->repeat;
+  for (size_t i = 0; i < repeat; i++) {
+    trap = NULL;
+    err = wasmtime_func_call(
+      context,
+      &func,
+      task->args,
+      task->nargs,
+      NULL,
+      0,
+      &trap
+    );
+    if (err != NULL) {
+      int status = 0;
+      if (wasmtime_error_exit_status(err, &status)) {
+        if (status == 0) {
+          wasmtime_error_delete(err);
+          err = NULL;
+        } else {
+          char buf[64];
+          snprintf(buf, sizeof(buf), "thread: wasi proc_exit(%d)", status);
+          wasmtime_error_delete(err);
+          err = wasmtime_error_new(buf);
+        }
+      }
+    }
+    if (trap != NULL) {
+      wasm_trap_delete(trap);
+      trap = NULL;
+    }
+    if (err != NULL || trap != NULL) {
+      break;
+    }
   }
   wasmtime_extern_delete(&item);
   if (err != NULL || trap != NULL) {
@@ -1926,6 +3839,9 @@ static void *wasmtime_thread_main(void *arg) {
   wasmtime_linker_delete(linker);
   wasmtime_store_delete(store);
 done:
+  if (fs_host != NULL) {
+    mbt_fs_host_free(fs_host);
+  }
   wasmtime_thread_task_mark_done(task);
   if (atomic_load_explicit(&task->detached, memory_order_acquire)) {
     if (wasmtime_thread_task_mark_collected(task)) {
@@ -1954,6 +3870,9 @@ uint64_t wasmtime_thread_runtime_new(uint64_t pages, uint8_t *error_out) {
   }
   wasmtime_config_wasm_threads_set(config, true);
   wasmtime_config_shared_memory_set(config, true);
+  wasmtime_config_wasm_gc_set(config, true);
+  wasmtime_config_wasm_reference_types_set(config, true);
+  wasmtime_config_wasm_function_references_set(config, true);
   wasm_engine_t *engine = wasm_engine_new_with_config(config);
   if (engine == NULL) {
     wasm_config_delete(config);
@@ -2015,6 +3934,8 @@ void wasmtime_thread_runtime_delete(uint64_t handle) {
   }
   wasmtime_thread_runtime_t *runtime =
     (wasmtime_thread_runtime_t *)(uintptr_t)handle;
+  wasmtime_thread_runtime_clear_argv(runtime);
+  wasmtime_thread_runtime_clear_preopen(runtime);
   if (runtime->shared != NULL) {
     wasmtime_sharedmemory_delete(runtime->shared);
   }
@@ -2022,6 +3943,189 @@ void wasmtime_thread_runtime_delete(uint64_t handle) {
     wasm_engine_delete(runtime->engine);
   }
   free(runtime);
+#endif
+}
+
+bool wasmtime_thread_runtime_wasi_preopen_dir(
+  uint64_t runtime_handle,
+  const uint8_t *host_path,
+  int32_t host_len,
+  const uint8_t *guest_path,
+  int32_t guest_len,
+  int32_t dir_perms,
+  int32_t file_perms,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  (void)host_path;
+  (void)host_len;
+  (void)guest_path;
+  (void)guest_len;
+  (void)dir_perms;
+  (void)file_perms;
+  wasmtime_bench_error_message(error_out, "thread: wasi not supported on windows");
+  return false;
+#else
+  if (runtime_handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: runtime handle invalid");
+    return false;
+  }
+  if (host_path == NULL || host_len <= 0) {
+    wasmtime_bench_error_message(error_out, "thread: wasi host path invalid");
+    return false;
+  }
+  wasmtime_thread_runtime_t *runtime =
+    (wasmtime_thread_runtime_t *)(uintptr_t)runtime_handle;
+  char *host_cstr = wasmtime_mbt_copy_cstr(host_path, host_len);
+  if (host_cstr == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: wasi host path alloc failed");
+    return false;
+  }
+  char *guest_cstr = NULL;
+  if (guest_path != NULL && guest_len > 0) {
+    guest_cstr = wasmtime_mbt_copy_cstr(guest_path, guest_len);
+  }
+  if (guest_cstr == NULL) {
+    guest_cstr = wasmtime_mbt_copy_cstr((const uint8_t *)".", 1);
+  }
+  if (guest_cstr == NULL) {
+    free(host_cstr);
+    wasmtime_bench_error_message(error_out, "thread: wasi guest path alloc failed");
+    return false;
+  }
+  wasmtime_thread_runtime_clear_preopen(runtime);
+  runtime->wasi_preopen_host = host_cstr;
+  runtime->wasi_preopen_guest = guest_cstr;
+  runtime->wasi_dir_perms = dir_perms;
+  runtime->wasi_file_perms = file_perms;
+  return true;
+#endif
+}
+
+bool wasmtime_thread_runtime_wasi_set_argv_bytes(
+  uint64_t runtime_handle,
+  const uint8_t *argv_bytes,
+  int32_t argv_len,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  (void)argv_bytes;
+  (void)argv_len;
+  wasmtime_bench_error_message(error_out, "thread: wasi not supported on windows");
+  return false;
+#else
+  if (runtime_handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: runtime handle invalid");
+    return false;
+  }
+  wasmtime_thread_runtime_t *runtime =
+    (wasmtime_thread_runtime_t *)(uintptr_t)runtime_handle;
+  wasmtime_thread_runtime_clear_argv(runtime);
+  runtime->wasi_inherit_argv = false;
+  if (argv_bytes == NULL || argv_len <= 0) {
+    return true;
+  }
+  size_t len = (size_t)argv_len;
+  size_t count = 0;
+  size_t i = 0;
+  while (i < len) {
+    size_t start = i;
+    while (i < len && argv_bytes[i] != 0) {
+      i++;
+    }
+    size_t seg_len = i - start;
+    if (seg_len > 0) {
+      count++;
+    }
+    if (i < len && argv_bytes[i] == 0) {
+      i++;
+    }
+  }
+  if (count == 0) {
+    return true;
+  }
+  char **argv = (char **)calloc(count, sizeof(char *));
+  if (argv == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: wasi argv alloc failed");
+    return false;
+  }
+  size_t idx = 0;
+  i = 0;
+  while (i < len && idx < count) {
+    size_t start = i;
+    while (i < len && argv_bytes[i] != 0) {
+      i++;
+    }
+    size_t seg_len = i - start;
+    if (seg_len > 0) {
+      char *buf = (char *)malloc(seg_len + 1);
+      if (buf == NULL) {
+        for (size_t j = 0; j < idx; j++) {
+          free(argv[j]);
+        }
+        free(argv);
+        wasmtime_bench_error_message(error_out, "thread: wasi argv alloc failed");
+        return false;
+      }
+      memcpy(buf, argv_bytes + start, seg_len);
+      buf[seg_len] = '\0';
+      argv[idx] = buf;
+      idx++;
+    }
+    if (i < len && argv_bytes[i] == 0) {
+      i++;
+    }
+  }
+  runtime->wasi_argv = argv;
+  runtime->wasi_argc = idx;
+  return true;
+#endif
+}
+
+bool wasmtime_thread_runtime_wasi_inherit_argv(
+  uint64_t runtime_handle,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  wasmtime_bench_error_message(error_out, "thread: wasi not supported on windows");
+  return false;
+#else
+  if (runtime_handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: runtime handle invalid");
+    return false;
+  }
+  wasmtime_thread_runtime_t *runtime =
+    (wasmtime_thread_runtime_t *)(uintptr_t)runtime_handle;
+  wasmtime_thread_runtime_clear_argv(runtime);
+  runtime->wasi_inherit_argv = true;
+  return true;
+#endif
+}
+
+bool wasmtime_thread_runtime_wasi_inherit_stdio(
+  uint64_t runtime_handle,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  wasmtime_bench_error_message(error_out, "thread: wasi not supported on windows");
+  return false;
+#else
+  if (runtime_handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: runtime handle invalid");
+    return false;
+  }
+  wasmtime_thread_runtime_t *runtime =
+    (wasmtime_thread_runtime_t *)(uintptr_t)runtime_handle;
+  runtime->wasi_inherit_stdio = true;
+  return true;
 #endif
 }
 
@@ -2122,6 +4226,7 @@ uint64_t wasmtime_thread_runtime_spawn_wat(
   memcpy(task->func_name, func_name, (size_t)func_name_len);
   task->func_name_len = (size_t)func_name_len;
   task->nargs = nargs;
+  task->repeat = 1;
   if (nargs > 0) {
     task->args = (wasmtime_val_t *)malloc(nargs * sizeof(wasmtime_val_t));
     if (task->args == NULL) {
@@ -2147,14 +4252,10 @@ uint64_t wasmtime_thread_runtime_spawn_wat(
 #endif
 }
 
-uint64_t wasmtime_thread_runtime_spawn_wasm(
+moonbit_bytes_t wasmtime_thread_runtime_precompile_cwasm(
   uint64_t runtime_handle,
   const uint8_t *wasm,
   int32_t wasm_len,
-  const uint8_t *func_name,
-  int32_t func_name_len,
-  const uint8_t *args,
-  int32_t args_len,
   uint8_t *error_out
 ) {
   wasmtime_bench_error_clear(error_out);
@@ -2162,13 +4263,71 @@ uint64_t wasmtime_thread_runtime_spawn_wasm(
   (void)runtime_handle;
   (void)wasm;
   (void)wasm_len;
-  (void)func_name;
-  (void)func_name_len;
-  (void)args;
-  (void)args_len;
-  wasmtime_bench_error_message(error_out, "thread: spawn not supported on windows");
-  return 0;
+  wasmtime_bench_error_message(error_out, "thread: precompile not supported on windows");
+  return NULL;
 #else
+  if (runtime_handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: runtime handle invalid");
+    return NULL;
+  }
+  if (wasm == NULL || wasm_len <= 0) {
+    wasmtime_bench_error_message(error_out, "thread: wasm input invalid");
+    return NULL;
+  }
+  wasmtime_thread_runtime_t *runtime =
+    (wasmtime_thread_runtime_t *)(uintptr_t)runtime_handle;
+  if (runtime->engine == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: runtime not initialized");
+    return NULL;
+  }
+  wasmtime_module_t *module = NULL;
+  wasmtime_error_t *err =
+    wasmtime_module_new(runtime->engine, wasm, (size_t)wasm_len, &module);
+  if (err != NULL || module == NULL) {
+    if (err != NULL) {
+      wasmtime_bench_error_take(error_out, err);
+    } else {
+      wasmtime_bench_error_message(error_out, "thread: module_new failed");
+    }
+    return NULL;
+  }
+  wasm_byte_vec_t serialized = {0, NULL};
+  err = wasmtime_module_serialize(module, &serialized);
+  wasmtime_module_delete(module);
+  if (err != NULL) {
+    wasmtime_bench_error_take(error_out, err);
+    return NULL;
+  }
+  if (serialized.size > INT32_MAX) {
+    wasm_byte_vec_delete(&serialized);
+    wasmtime_bench_error_message(error_out, "thread: cwasm too large");
+    return NULL;
+  }
+  moonbit_bytes_t out = moonbit_make_bytes((int32_t)serialized.size, 0);
+  if (serialized.size > 0 && out != NULL) {
+    memcpy(out, serialized.data, serialized.size);
+  }
+  wasm_byte_vec_delete(&serialized);
+  if (out == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: cwasm alloc failed");
+    return NULL;
+  }
+  return out;
+#endif
+}
+
+static uint64_t wasmtime_thread_runtime_spawn_wasm_impl(
+  uint64_t runtime_handle,
+  const uint8_t *wasm,
+  int32_t wasm_len,
+  bool serialized,
+  const uint8_t *func_name,
+  int32_t func_name_len,
+  const uint8_t *args,
+  int32_t args_len,
+  size_t repeat,
+  uint8_t *error_out
+) {
   if (runtime_handle == 0) {
     wasmtime_bench_error_message(error_out, "thread: runtime handle invalid");
     return 0;
@@ -2206,13 +4365,17 @@ uint64_t wasmtime_thread_runtime_spawn_wasm(
     return 0;
   }
   wasmtime_module_t *module = NULL;
-  wasmtime_error_t *err =
-    wasmtime_module_new(runtime->engine, wasm, (size_t)wasm_len, &module);
+  wasmtime_error_t *err = NULL;
+  if (serialized) {
+    err = wasmtime_module_deserialize(runtime->engine, wasm, (size_t)wasm_len, &module);
+  } else {
+    err = wasmtime_module_new(runtime->engine, wasm, (size_t)wasm_len, &module);
+  }
   if (err != NULL || module == NULL) {
     if (err != NULL) {
       wasmtime_bench_error_take(error_out, err);
     } else {
-      wasmtime_bench_error_message(error_out, "thread: module_new failed");
+      wasmtime_bench_error_message(error_out, "thread: module load failed");
     }
     return 0;
   }
@@ -2238,6 +4401,7 @@ uint64_t wasmtime_thread_runtime_spawn_wasm(
   memcpy(task->func_name, func_name, (size_t)func_name_len);
   task->func_name_len = (size_t)func_name_len;
   task->nargs = nargs;
+  task->repeat = repeat == 0 ? 1 : repeat;
   if (nargs > 0) {
     task->args = (wasmtime_val_t *)malloc(nargs * sizeof(wasmtime_val_t));
     if (task->args == NULL) {
@@ -2260,6 +4424,165 @@ uint64_t wasmtime_thread_runtime_spawn_wasm(
     return 0;
   }
   return (uint64_t)(uintptr_t)task;
+}
+
+uint64_t wasmtime_thread_runtime_spawn_wasm(
+  uint64_t runtime_handle,
+  const uint8_t *wasm,
+  int32_t wasm_len,
+  const uint8_t *func_name,
+  int32_t func_name_len,
+  const uint8_t *args,
+  int32_t args_len,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  (void)wasm;
+  (void)wasm_len;
+  (void)func_name;
+  (void)func_name_len;
+  (void)args;
+  (void)args_len;
+  wasmtime_bench_error_message(error_out, "thread: spawn not supported on windows");
+  return 0;
+#else
+  return wasmtime_thread_runtime_spawn_wasm_impl(
+    runtime_handle,
+    wasm,
+    wasm_len,
+    false,
+    func_name,
+    func_name_len,
+    args,
+    args_len,
+    1,
+    error_out
+  );
+#endif
+}
+
+uint64_t wasmtime_thread_runtime_spawn_wasm_repeat(
+  uint64_t runtime_handle,
+  const uint8_t *wasm,
+  int32_t wasm_len,
+  const uint8_t *func_name,
+  int32_t func_name_len,
+  const uint8_t *args,
+  int32_t args_len,
+  int32_t repeat,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  (void)wasm;
+  (void)wasm_len;
+  (void)func_name;
+  (void)func_name_len;
+  (void)args;
+  (void)args_len;
+  (void)repeat;
+  wasmtime_bench_error_message(error_out, "thread: spawn not supported on windows");
+  return 0;
+#else
+  if (repeat <= 0) {
+    wasmtime_bench_error_message(error_out, "thread: repeat must be > 0");
+    return 0;
+  }
+  return wasmtime_thread_runtime_spawn_wasm_impl(
+    runtime_handle,
+    wasm,
+    wasm_len,
+    false,
+    func_name,
+    func_name_len,
+    args,
+    args_len,
+    (size_t)repeat,
+    error_out
+  );
+#endif
+}
+
+uint64_t wasmtime_thread_runtime_spawn_cwasm(
+  uint64_t runtime_handle,
+  const uint8_t *cwasm,
+  int32_t cwasm_len,
+  const uint8_t *func_name,
+  int32_t func_name_len,
+  const uint8_t *args,
+  int32_t args_len,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  (void)cwasm;
+  (void)cwasm_len;
+  (void)func_name;
+  (void)func_name_len;
+  (void)args;
+  (void)args_len;
+  wasmtime_bench_error_message(error_out, "thread: spawn not supported on windows");
+  return 0;
+#else
+  return wasmtime_thread_runtime_spawn_wasm_impl(
+    runtime_handle,
+    cwasm,
+    cwasm_len,
+    true,
+    func_name,
+    func_name_len,
+    args,
+    args_len,
+    1,
+    error_out
+  );
+#endif
+}
+
+uint64_t wasmtime_thread_runtime_spawn_cwasm_repeat(
+  uint64_t runtime_handle,
+  const uint8_t *cwasm,
+  int32_t cwasm_len,
+  const uint8_t *func_name,
+  int32_t func_name_len,
+  const uint8_t *args,
+  int32_t args_len,
+  int32_t repeat,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  (void)cwasm;
+  (void)cwasm_len;
+  (void)func_name;
+  (void)func_name_len;
+  (void)args;
+  (void)args_len;
+  (void)repeat;
+  wasmtime_bench_error_message(error_out, "thread: spawn not supported on windows");
+  return 0;
+#else
+  if (repeat <= 0) {
+    wasmtime_bench_error_message(error_out, "thread: repeat must be > 0");
+    return 0;
+  }
+  return wasmtime_thread_runtime_spawn_wasm_impl(
+    runtime_handle,
+    cwasm,
+    cwasm_len,
+    true,
+    func_name,
+    func_name_len,
+    args,
+    args_len,
+    (size_t)repeat,
+    error_out
+  );
 #endif
 }
 
