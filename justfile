@@ -16,6 +16,7 @@ check:
 
 # Run tests
 test:
+    bash src/scripts/build-guest-wasm.sh src/build-stamps/guest_wasm_build.stamp
     moon test --target {{target}} --release
 
 # Update snapshot tests

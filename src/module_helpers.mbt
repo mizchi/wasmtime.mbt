@@ -88,6 +88,34 @@ pub fn linker_define_wasi_result(linker : Linker) -> Result[Unit, Error] {
 }
 
 ///|
+/// Define spectest.print_char in a linker (Result-based).
+pub fn linker_define_spectest_print_char_result(
+  linker : Linker,
+  context : Context,
+) -> Result[Unit, Error] {
+  let err_ptr = make_ptr_buffer()
+  let ok = linker_define_spectest_print_char(linker, context, err_ptr)
+  if ok && ptr_buffer_is_null(err_ptr) {
+    Ok(())
+  } else {
+    error_delete_ptr_buffer(err_ptr)
+    Err(@builtin.Failure::Failure("linker_define_spectest_print_char failed"))
+  }
+}
+
+///|
+/// Define spectest.print_char in a linker (raise on failure).
+pub fn linker_define_spectest_print_char_or_raise(
+  linker : Linker,
+  context : Context,
+) -> Unit raise {
+  match linker_define_spectest_print_char_result(linker, context) {
+    Ok(_) => ()
+    Err(err) => raise err
+  }
+}
+
+///|
 /// Define WASI in a linker (raise on failure).
 pub fn linker_define_wasi_or_raise(linker : Linker) -> Unit raise {
   match linker_define_wasi_result(linker) {

@@ -552,6 +552,23 @@ pub extern "C" fn linker_delete(linker : Linker) -> Unit = "wasmtime_linker_dele
 pub extern "C" fn linker_define_wasi(linker : Linker) -> WasmtimeError = "wasmtime_linker_define_wasi"
 
 ///|
+/// Define spectest.print_char in a linker.
+#borrow(linker, context, error_out)
+pub extern "C" fn linker_define_spectest_print_char(
+  linker : Linker,
+  context : Context,
+  error_out : Bytes,
+) -> Bool = "wasmtime_linker_define_spectest_print_char"
+
+///|
+/// Reset spectest print capture buffer.
+pub extern "C" fn spectest_capture_reset() -> Unit = "wasmtime_spectest_capture_reset"
+
+///|
+/// Read spectest print capture buffer.
+pub extern "C" fn spectest_capture_bytes() -> Bytes = "wasmtime_spectest_capture_bytes"
+
+///|
 /// Instantiate a module with a linker into bytes.
 #borrow(linker, context, module_val, instance_out, trap_out, error_out)
 pub extern "C" fn linker_instantiate_bytes(

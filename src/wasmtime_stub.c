@@ -1230,6 +1230,58 @@ uint64_t wasmtime_noop_callback_ptr(void) {
   return (uint64_t)(uintptr_t)&wasmtime_mbt_noop_callback;
 }
 
+static uint8_t *wasmtime_spectest_buf = NULL;
+static size_t wasmtime_spectest_len = 0;
+static size_t wasmtime_spectest_cap = 0;
+
+static void wasmtime_spectest_capture_push(uint8_t value) {
+  if (wasmtime_spectest_len + 1 > wasmtime_spectest_cap) {
+    size_t next_cap = wasmtime_spectest_cap == 0 ? 64 : wasmtime_spectest_cap * 2;
+    uint8_t *next = (uint8_t *)realloc(wasmtime_spectest_buf, next_cap);
+    if (next == NULL) {
+      return;
+    }
+    wasmtime_spectest_buf = next;
+    wasmtime_spectest_cap = next_cap;
+  }
+  wasmtime_spectest_buf[wasmtime_spectest_len] = value;
+  wasmtime_spectest_len += 1;
+}
+
+static wasm_trap_t *wasmtime_mbt_spectest_print_char(
+  void *env,
+  wasmtime_caller_t *caller,
+  const wasmtime_val_t *args,
+  size_t nargs,
+  wasmtime_val_t *results,
+  size_t nresults
+) {
+  (void)env;
+  (void)caller;
+  (void)results;
+  (void)nresults;
+  if (args != NULL && nargs > 0) {
+    uint8_t value = (uint8_t)(args[0].of.i32 & 0xff);
+    wasmtime_spectest_capture_push(value);
+  }
+  return NULL;
+}
+
+moonbit_bytes_t wasmtime_spectest_capture_bytes(void) {
+  moonbit_bytes_t bytes = moonbit_make_bytes((int32_t)wasmtime_spectest_len, 0);
+  if (bytes == NULL) {
+    return NULL;
+  }
+  if (wasmtime_spectest_len > 0 && wasmtime_spectest_buf != NULL) {
+    memcpy(bytes, wasmtime_spectest_buf, wasmtime_spectest_len);
+  }
+  return bytes;
+}
+
+void wasmtime_spectest_capture_reset(void) {
+  wasmtime_spectest_len = 0;
+}
+
 #if !defined(_WIN32)
 typedef struct wasmtime_call_future_thread {
   wasmtime_call_future_t *future;
@@ -1338,6 +1390,51 @@ static void wasmtime_bench_error_take(uint8_t *error_out, wasmtime_error_t *err)
   } else {
     wasmtime_error_delete(err);
   }
+}
+
+bool wasmtime_linker_define_spectest_print_char(
+  wasmtime_linker_t *linker,
+  wasmtime_context_t *context,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+  if (linker == NULL || context == NULL) {
+    wasmtime_bench_error_message(error_out, "spectest: linker/context missing");
+    return false;
+  }
+  uint8_t params[1] = { 0 };
+  wasm_functype_t *ty = wasmtime_functype_new_from_kinds(params, 1, NULL, 0);
+  if (ty == NULL) {
+    wasmtime_bench_error_message(error_out, "spectest: functype_new failed");
+    return false;
+  }
+  wasmtime_func_t func;
+  wasmtime_func_new(
+    context,
+    ty,
+    wasmtime_mbt_spectest_print_char,
+    NULL,
+    NULL,
+    &func
+  );
+  wasm_functype_delete(ty);
+  wasmtime_extern_t item;
+  item.kind = WASMTIME_EXTERN_FUNC;
+  item.of.func = func;
+  wasmtime_error_t *err = wasmtime_linker_define(
+    linker,
+    context,
+    "spectest",
+    8,
+    "print_char",
+    10,
+    &item
+  );
+  if (err != NULL) {
+    wasmtime_bench_error_take(error_out, err);
+    return false;
+  }
+  return true;
 }
 
 static void wasmtime_bench_write_u64(uint8_t *bytes, uint64_t value) {
