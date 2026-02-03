@@ -15,12 +15,18 @@
 #include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
 #endif
 
 typedef struct wasm_config_t wasm_config_t;
 typedef struct wasm_engine_t wasm_engine_t;
 typedef struct wasm_functype_t wasm_functype_t;
 typedef struct wasm_valtype_t wasm_valtype_t;
+typedef struct wasm_memorytype_t wasm_memorytype_t;
 typedef struct wasm_trap_t wasm_trap_t;
 typedef struct wasmtime_caller wasmtime_caller_t;
 typedef struct wasmtime_context wasmtime_context_t;
@@ -39,6 +45,31 @@ typedef struct wasmtime_func {
   uint64_t store_id;
   void *__private;
 } wasmtime_func_t;
+
+typedef struct wasmtime_table {
+  struct {
+    uint64_t store_id;
+    uint32_t __private1;
+  };
+  uint32_t __private2;
+} wasmtime_table_t;
+
+typedef struct wasmtime_memory {
+  struct {
+    uint64_t store_id;
+    uint32_t __private1;
+  };
+  uint32_t __private2;
+} wasmtime_memory_t;
+
+typedef struct wasmtime_global {
+  uint64_t store_id;
+  uint32_t __private1;
+  uint32_t __private2;
+  uint32_t __private3;
+} wasmtime_global_t;
+
+typedef struct wasmtime_sharedmemory wasmtime_sharedmemory_t;
 
 typedef struct wasmtime_anyref {
   uint64_t store_id;
@@ -101,9 +132,17 @@ typedef struct wasm_byte_vec_t {
 typedef uint8_t wasmtime_extern_kind_t;
 
 #define WASMTIME_EXTERN_FUNC 0
+#define WASMTIME_EXTERN_GLOBAL 1
+#define WASMTIME_EXTERN_TABLE 2
+#define WASMTIME_EXTERN_MEMORY 3
+#define WASMTIME_EXTERN_SHAREDMEMORY 4
 
 typedef union wasmtime_extern_union {
   wasmtime_func_t func;
+  wasmtime_global_t global;
+  wasmtime_table_t table;
+  wasmtime_memory_t memory;
+  wasmtime_sharedmemory_t *sharedmemory;
   uint8_t _padding[32];
 } wasmtime_extern_union_t;
 
@@ -172,10 +211,16 @@ void wasm_engine_delete(wasm_engine_t *);
 void wasm_byte_vec_delete(wasm_byte_vec_t *);
 
 wasmtime_error_t *wasmtime_error_new(const char *);
+void wasmtime_error_message(const wasmtime_error_t *, wasm_byte_vec_t *);
+wasm_config_t *wasm_config_new(void);
+void wasm_config_delete(wasm_config_t *);
+wasm_engine_t *wasm_engine_new_with_config(wasm_config_t *);
 wasmtime_error_t *wasmtime_config_target_set(wasm_config_t *, const char *);
 wasmtime_error_t *wasmtime_config_cache_config_load(wasm_config_t *, const char *);
 void wasmtime_config_cranelift_flag_enable(wasm_config_t *, const char *);
 void wasmtime_config_cranelift_flag_set(wasm_config_t *, const char *, const char *);
+void wasmtime_config_wasm_threads_set(wasm_config_t *, bool);
+void wasmtime_config_shared_memory_set(wasm_config_t *, bool);
 wasmtime_store_t *wasmtime_store_new(wasm_engine_t *, void *, void (*)(void *));
 void wasmtime_store_delete(wasmtime_store_t *);
 wasmtime_context_t *wasmtime_store_context(wasmtime_store_t *);
@@ -184,6 +229,25 @@ void wasm_trap_delete(wasm_trap_t *);
 void wasmtime_val_unroot(wasmtime_val_t *);
 wasm_valtype_t *wasm_valtype_new(uint8_t);
 void wasm_valtype_delete(wasm_valtype_t *);
+wasmtime_error_t *wasmtime_memorytype_new(
+  uint64_t,
+  bool,
+  uint64_t,
+  bool,
+  bool,
+  uint8_t,
+  wasm_memorytype_t **
+);
+void wasm_memorytype_delete(wasm_memorytype_t *);
+wasmtime_error_t *wasmtime_sharedmemory_new(
+  const wasm_engine_t *,
+  const wasm_memorytype_t *,
+  wasmtime_sharedmemory_t **
+);
+void wasmtime_sharedmemory_delete(wasmtime_sharedmemory_t *);
+wasmtime_sharedmemory_t *wasmtime_sharedmemory_clone(const wasmtime_sharedmemory_t *);
+uint8_t *wasmtime_sharedmemory_data(const wasmtime_sharedmemory_t *);
+size_t wasmtime_sharedmemory_data_size(const wasmtime_sharedmemory_t *);
 wasm_functype_t *wasm_functype_new(
   wasm_valtype_vec_t *,
   wasm_valtype_vec_t *
@@ -227,6 +291,15 @@ wasmtime_error_t *wasmtime_func_call(
 wasmtime_linker_t *wasmtime_linker_new(wasm_engine_t *);
 void wasmtime_linker_delete(wasmtime_linker_t *);
 wasmtime_error_t *wasmtime_linker_define_wasi(wasmtime_linker_t *);
+wasmtime_error_t *wasmtime_linker_define(
+  wasmtime_linker_t *,
+  wasmtime_context_t *,
+  const char *,
+  size_t,
+  const char *,
+  size_t,
+  const wasmtime_extern_t *
+);
 wasmtime_error_t *wasmtime_linker_instantiate(
   const wasmtime_linker_t *,
   wasmtime_context_t *,
@@ -475,6 +548,15 @@ uint64_t moonbit_ptr_read_u64(const uint8_t *bytes) {
   return (uint64_t)(uintptr_t)moonbit_ptr_read_raw(bytes);
 }
 
+uint64_t moonbit_bytes_read_u64(const uint8_t *bytes) {
+  if (bytes == NULL) {
+    return 0;
+  }
+  uint64_t value = 0;
+  memcpy(&value, bytes, sizeof(value));
+  return value;
+}
+
 int32_t moonbit_ptr_sizeof(void) {
   return (int32_t)sizeof(void *);
 }
@@ -611,6 +693,21 @@ void wasmtime_error_delete_ptr(const uint8_t *bytes) {
   if (err != NULL) {
     wasmtime_error_delete(err);
   }
+}
+
+moonbit_bytes_t wasmtime_error_message_bytes(const uint8_t *bytes) {
+  wasmtime_error_t *err = (wasmtime_error_t *)moonbit_ptr_read_raw(bytes);
+  if (err == NULL) {
+    return NULL;
+  }
+  wasm_byte_vec_t msg = {0, NULL};
+  wasmtime_error_message(err, &msg);
+  moonbit_bytes_t out = moonbit_make_bytes((int32_t)msg.size, 0);
+  if (out != NULL && msg.size > 0) {
+    memcpy(out, msg.data, msg.size);
+  }
+  wasm_byte_vec_delete(&msg);
+  return out;
 }
 
 void wasm_trap_delete_ptr(const uint8_t *bytes) {
@@ -1213,5 +1310,1784 @@ bool wasmtime_call_future_thread_join(uint64_t handle) {
   pthread_join(task->thread, NULL);
   free(task);
   return true;
+#endif
+}
+
+static void wasmtime_bench_error_clear(uint8_t *error_out) {
+  if (error_out != NULL) {
+    memset(error_out, 0, sizeof(void *));
+  }
+}
+
+static void wasmtime_bench_error_message(uint8_t *error_out, const char *msg) {
+  if (error_out == NULL) {
+    return;
+  }
+  wasmtime_error_t *err = wasmtime_error_new(msg);
+  if (err != NULL) {
+    moonbit_ptr_write_raw(error_out, err);
+  }
+}
+
+static void wasmtime_bench_error_take(uint8_t *error_out, wasmtime_error_t *err) {
+  if (err == NULL) {
+    return;
+  }
+  if (error_out != NULL) {
+    moonbit_ptr_write_raw(error_out, err);
+  } else {
+    wasmtime_error_delete(err);
+  }
+}
+
+static void wasmtime_bench_write_u64(uint8_t *bytes, uint64_t value) {
+  if (bytes == NULL) {
+    return;
+  }
+  memcpy(bytes, &value, sizeof(value));
+}
+
+static void wasmtime_bench_clear_u64(uint8_t *bytes) {
+  if (bytes == NULL) {
+    return;
+  }
+  uint64_t zero = 0;
+  memcpy(bytes, &zero, sizeof(zero));
+}
+
+#if !defined(_WIN32)
+enum {
+  WASMTIME_BENCH_ERR_NONE = 0,
+  WASMTIME_BENCH_ERR_STORE = 1,
+  WASMTIME_BENCH_ERR_LINKER = 2,
+  WASMTIME_BENCH_ERR_SHARED_CLONE = 3,
+  WASMTIME_BENCH_ERR_DEFINE = 4,
+  WASMTIME_BENCH_ERR_INSTANTIATE = 5,
+  WASMTIME_BENCH_ERR_EXPORT = 6,
+  WASMTIME_BENCH_ERR_EXPORT_KIND = 7,
+  WASMTIME_BENCH_ERR_CALL = 8
+};
+
+static void wasmtime_bench_set_error_code(atomic_int *code, int value) {
+  int expected = 0;
+  atomic_compare_exchange_strong(code, &expected, value);
+}
+
+typedef struct wasmtime_ring_header {
+  _Atomic uint32_t head;
+  _Atomic uint32_t tail;
+  uint64_t sum;
+  uint64_t prod_spins;
+  uint64_t cons_spins;
+} wasmtime_ring_header_t;
+
+static void wasmtime_bench_wait_start(atomic_int *ready_count, atomic_bool *start_flag) {
+  if (ready_count == NULL || start_flag == NULL) {
+    return;
+  }
+  atomic_fetch_add_explicit(ready_count, 1, memory_order_release);
+  while (!atomic_load_explicit(start_flag, memory_order_acquire)) {
+    sched_yield();
+  }
+}
+
+typedef struct wasmtime_os_ring_thread_args {
+  wasmtime_ring_header_t *ring;
+  uint32_t *data;
+  uint32_t items;
+  uint32_t mask;
+  atomic_int *ready_count;
+  atomic_bool *start_flag;
+} wasmtime_os_ring_thread_args_t;
+
+static void *wasmtime_os_ring_producer_main(void *arg) {
+  wasmtime_os_ring_thread_args_t *args = (wasmtime_os_ring_thread_args_t *)arg;
+  wasmtime_bench_wait_start(args->ready_count, args->start_flag);
+  wasmtime_ring_header_t *ring = args->ring;
+  uint32_t *data = args->data;
+  uint32_t mask = args->mask;
+  uint32_t capacity = mask + 1;
+  uint32_t head = atomic_load_explicit(&ring->head, memory_order_relaxed);
+  uint64_t spins = 0;
+  for (uint32_t i = 0; i < args->items; i++) {
+    uint32_t tail = atomic_load_explicit(&ring->tail, memory_order_acquire);
+    while ((head - tail) >= capacity) {
+      tail = atomic_load_explicit(&ring->tail, memory_order_acquire);
+      sched_yield();
+      spins++;
+    }
+    data[head & mask] = i + 1;
+    head = head + 1;
+    atomic_store_explicit(&ring->head, head, memory_order_release);
+  }
+  ring->prod_spins = spins;
+  return NULL;
+}
+
+static void *wasmtime_os_ring_consumer_main(void *arg) {
+  wasmtime_os_ring_thread_args_t *args = (wasmtime_os_ring_thread_args_t *)arg;
+  wasmtime_bench_wait_start(args->ready_count, args->start_flag);
+  wasmtime_ring_header_t *ring = args->ring;
+  uint32_t *data = args->data;
+  uint32_t mask = args->mask;
+  uint32_t tail = atomic_load_explicit(&ring->tail, memory_order_relaxed);
+  uint64_t sum = 0;
+  uint64_t spins = 0;
+  for (uint32_t i = 0; i < args->items; i++) {
+    uint32_t head = atomic_load_explicit(&ring->head, memory_order_acquire);
+    while (head == tail) {
+      head = atomic_load_explicit(&ring->head, memory_order_acquire);
+      sched_yield();
+      spins++;
+    }
+    uint32_t value = data[tail & mask];
+    sum += (uint64_t)value;
+    tail = tail + 1;
+    atomic_store_explicit(&ring->tail, tail, memory_order_release);
+  }
+  ring->sum = sum;
+  ring->cons_spins = spins;
+  return NULL;
+}
+
+typedef struct wasmtime_wasm_ring_thread_args {
+  wasm_engine_t *engine;
+  wasmtime_module_t *module;
+  wasmtime_sharedmemory_t *shared;
+  uint32_t items;
+  uint32_t mask;
+  const char *func_name;
+  size_t func_name_len;
+  atomic_int *error_code;
+  atomic_int *ready_count;
+  atomic_bool *start_flag;
+} wasmtime_wasm_ring_thread_args_t;
+
+static void *wasmtime_wasm_ring_thread_main(void *arg) {
+  wasmtime_wasm_ring_thread_args_t *args = (wasmtime_wasm_ring_thread_args_t *)arg;
+  if (atomic_load(args->error_code) != 0) {
+    return NULL;
+  }
+  wasmtime_store_t *store = wasmtime_store_new(args->engine, NULL, NULL);
+  if (store == NULL) {
+    wasmtime_bench_set_error_code(args->error_code, WASMTIME_BENCH_ERR_STORE);
+    return NULL;
+  }
+  wasmtime_context_t *context = wasmtime_store_context(store);
+  wasmtime_linker_t *linker = wasmtime_linker_new(args->engine);
+  if (linker == NULL) {
+    wasmtime_store_delete(store);
+    wasmtime_bench_set_error_code(args->error_code, WASMTIME_BENCH_ERR_LINKER);
+    return NULL;
+  }
+  wasmtime_sharedmemory_t *shared = wasmtime_sharedmemory_clone(args->shared);
+  if (shared == NULL) {
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    wasmtime_bench_set_error_code(args->error_code, WASMTIME_BENCH_ERR_SHARED_CLONE);
+    return NULL;
+  }
+  wasmtime_extern_t mem_extern;
+  mem_extern.kind = WASMTIME_EXTERN_SHAREDMEMORY;
+  mem_extern.of.sharedmemory = shared;
+  wasmtime_error_t *err = wasmtime_linker_define(
+    linker,
+    context,
+    "env",
+    3,
+    "mem",
+    3,
+    &mem_extern
+  );
+  if (err != NULL) {
+    wasmtime_error_delete(err);
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    wasmtime_bench_set_error_code(args->error_code, WASMTIME_BENCH_ERR_DEFINE);
+    return NULL;
+  }
+  wasmtime_instance_t instance;
+  wasm_trap_t *trap = NULL;
+  err = wasmtime_linker_instantiate(linker, context, args->module, &instance, &trap);
+  if (trap != NULL) {
+    wasm_trap_delete(trap);
+  }
+  if (err != NULL || trap != NULL) {
+    if (err != NULL) {
+      wasmtime_error_delete(err);
+    }
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    wasmtime_bench_set_error_code(args->error_code, WASMTIME_BENCH_ERR_INSTANTIATE);
+    return NULL;
+  }
+  wasmtime_extern_t item;
+  if (!wasmtime_instance_export_get(
+        context,
+        &instance,
+        args->func_name,
+        args->func_name_len,
+        &item
+      )) {
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    wasmtime_bench_set_error_code(args->error_code, WASMTIME_BENCH_ERR_EXPORT);
+    return NULL;
+  }
+  if (item.kind != WASMTIME_EXTERN_FUNC) {
+    wasmtime_extern_delete(&item);
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    wasmtime_bench_set_error_code(args->error_code, WASMTIME_BENCH_ERR_EXPORT_KIND);
+    return NULL;
+  }
+  wasmtime_func_t func = item.of.func;
+  wasmtime_bench_wait_start(args->ready_count, args->start_flag);
+  wasmtime_val_t argv[2];
+  argv[0].kind = WASMTIME_I32;
+  argv[0].of.i32 = (int32_t)args->items;
+  argv[1].kind = WASMTIME_I32;
+  argv[1].of.i32 = (int32_t)args->mask;
+  trap = NULL;
+  err = wasmtime_func_call(context, &func, argv, 2, NULL, 0, &trap);
+  if (trap != NULL) {
+    wasm_trap_delete(trap);
+  }
+  wasmtime_extern_delete(&item);
+  if (err != NULL || trap != NULL) {
+    if (err != NULL) {
+      wasmtime_error_delete(err);
+    }
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    wasmtime_bench_set_error_code(args->error_code, WASMTIME_BENCH_ERR_CALL);
+    return NULL;
+  }
+  wasmtime_sharedmemory_delete(shared);
+  wasmtime_linker_delete(linker);
+  wasmtime_store_delete(store);
+  return NULL;
+}
+
+typedef struct wasmtime_thread_runtime {
+  wasm_engine_t *engine;
+  wasmtime_sharedmemory_t *shared;
+  uint64_t pages;
+} wasmtime_thread_runtime_t;
+
+typedef struct wasmtime_thread_task {
+  pthread_t thread;
+  wasmtime_thread_runtime_t *runtime;
+  wasmtime_module_t *module;
+  char *func_name;
+  size_t func_name_len;
+  wasmtime_val_t *args;
+  size_t nargs;
+  wasmtime_error_t *error;
+  atomic_bool done;
+  atomic_bool detached;
+  atomic_bool collected;
+} wasmtime_thread_task_t;
+
+static void wasmtime_thread_task_set_error(
+  wasmtime_thread_task_t *task,
+  wasmtime_error_t *err,
+  const char *msg
+) {
+  if (task == NULL || task->error != NULL) {
+    if (err != NULL) {
+      wasmtime_error_delete(err);
+    }
+    return;
+  }
+  if (err != NULL) {
+    task->error = err;
+    return;
+  }
+  if (msg != NULL) {
+    task->error = wasmtime_error_new(msg);
+  }
+}
+
+static bool wasmtime_thread_task_mark_collected(wasmtime_thread_task_t *task) {
+  bool expected = false;
+  return atomic_compare_exchange_strong(&task->collected, &expected, true);
+}
+
+static void wasmtime_thread_task_cleanup(wasmtime_thread_task_t *task) {
+  if (task == NULL) {
+    return;
+  }
+  if (task->module != NULL) {
+    wasmtime_module_delete(task->module);
+  }
+  if (task->args != NULL) {
+    free(task->args);
+  }
+  if (task->func_name != NULL) {
+    free(task->func_name);
+  }
+  if (task->error != NULL) {
+    wasmtime_error_delete(task->error);
+    task->error = NULL;
+  }
+  free(task);
+}
+
+static void wasmtime_thread_task_mark_done(wasmtime_thread_task_t *task) {
+  if (task != NULL) {
+    atomic_store_explicit(&task->done, true, memory_order_release);
+  }
+}
+
+static void *wasmtime_thread_main(void *arg) {
+  wasmtime_thread_task_t *task = (wasmtime_thread_task_t *)arg;
+  if (task == NULL || task->runtime == NULL || task->runtime->engine == NULL) {
+    wasmtime_thread_task_set_error(task, NULL, "thread: runtime invalid");
+    goto done;
+  }
+  if (task->module == NULL) {
+    wasmtime_thread_task_set_error(task, NULL, "thread: module missing");
+    goto done;
+  }
+  wasmtime_store_t *store = wasmtime_store_new(task->runtime->engine, NULL, NULL);
+  if (store == NULL) {
+    wasmtime_thread_task_set_error(task, NULL, "thread: store_new failed");
+    goto done;
+  }
+  wasmtime_context_t *context = wasmtime_store_context(store);
+  wasmtime_linker_t *linker = wasmtime_linker_new(task->runtime->engine);
+  if (linker == NULL) {
+    wasmtime_store_delete(store);
+    wasmtime_thread_task_set_error(task, NULL, "thread: linker_new failed");
+    goto done;
+  }
+  wasmtime_sharedmemory_t *shared = wasmtime_sharedmemory_clone(task->runtime->shared);
+  if (shared == NULL) {
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    wasmtime_thread_task_set_error(task, NULL, "thread: sharedmemory_clone failed");
+    goto done;
+  }
+  wasmtime_extern_t mem_extern;
+  mem_extern.kind = WASMTIME_EXTERN_SHAREDMEMORY;
+  mem_extern.of.sharedmemory = shared;
+  wasmtime_error_t *err = wasmtime_linker_define(
+    linker,
+    context,
+    "env",
+    3,
+    "mem",
+    3,
+    &mem_extern
+  );
+  if (err != NULL) {
+    wasmtime_thread_task_set_error(task, err, NULL);
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    goto done;
+  }
+  wasmtime_instance_t instance;
+  wasm_trap_t *trap = NULL;
+  err = wasmtime_linker_instantiate(linker, context, task->module, &instance, &trap);
+  if (trap != NULL) {
+    wasm_trap_delete(trap);
+  }
+  if (err != NULL || trap != NULL) {
+    if (err != NULL) {
+      wasmtime_thread_task_set_error(task, err, NULL);
+    } else {
+      wasmtime_thread_task_set_error(task, NULL, "thread: instantiate trap");
+    }
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    goto done;
+  }
+  wasmtime_extern_t item;
+  if (!wasmtime_instance_export_get(
+        context,
+        &instance,
+        task->func_name,
+        task->func_name_len,
+        &item
+      )) {
+    wasmtime_thread_task_set_error(task, NULL, "thread: export_get failed");
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    goto done;
+  }
+  if (item.kind != WASMTIME_EXTERN_FUNC) {
+    wasmtime_extern_delete(&item);
+    wasmtime_thread_task_set_error(task, NULL, "thread: export kind mismatch");
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    goto done;
+  }
+  wasmtime_func_t func = item.of.func;
+  trap = NULL;
+  err = wasmtime_func_call(
+    context,
+    &func,
+    task->args,
+    task->nargs,
+    NULL,
+    0,
+    &trap
+  );
+  if (trap != NULL) {
+    wasm_trap_delete(trap);
+  }
+  wasmtime_extern_delete(&item);
+  if (err != NULL || trap != NULL) {
+    if (err != NULL) {
+      wasmtime_thread_task_set_error(task, err, NULL);
+    } else {
+      wasmtime_thread_task_set_error(task, NULL, "thread: call trap");
+    }
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_linker_delete(linker);
+    wasmtime_store_delete(store);
+    goto done;
+  }
+  wasmtime_sharedmemory_delete(shared);
+  wasmtime_linker_delete(linker);
+  wasmtime_store_delete(store);
+done:
+  wasmtime_thread_task_mark_done(task);
+  if (atomic_load_explicit(&task->detached, memory_order_acquire)) {
+    if (wasmtime_thread_task_mark_collected(task)) {
+      wasmtime_thread_task_cleanup(task);
+    }
+  }
+  return NULL;
+}
+
+#endif
+
+uint64_t wasmtime_thread_runtime_new(uint64_t pages, uint8_t *error_out) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)pages;
+  wasmtime_bench_error_message(error_out, "thread: runtime not supported on windows");
+  return 0;
+#else
+  if (pages == 0) {
+    pages = 1;
+  }
+  wasm_config_t *config = wasm_config_new();
+  if (config == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: config_new failed");
+    return 0;
+  }
+  wasmtime_config_wasm_threads_set(config, true);
+  wasmtime_config_shared_memory_set(config, true);
+  wasm_engine_t *engine = wasm_engine_new_with_config(config);
+  if (engine == NULL) {
+    wasm_config_delete(config);
+    wasmtime_bench_error_message(error_out, "thread: engine_new_with_config failed");
+    return 0;
+  }
+  wasm_memorytype_t *mem_ty = NULL;
+  wasmtime_error_t *err = wasmtime_memorytype_new(
+    pages,
+    true,
+    pages,
+    false,
+    true,
+    16,
+    &mem_ty
+  );
+  if (err != NULL || mem_ty == NULL) {
+    if (err != NULL) {
+      wasmtime_bench_error_take(error_out, err);
+    } else {
+      wasmtime_bench_error_message(error_out, "thread: memorytype_new failed");
+    }
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  wasmtime_sharedmemory_t *shared = NULL;
+  err = wasmtime_sharedmemory_new(engine, mem_ty, &shared);
+  wasm_memorytype_delete(mem_ty);
+  if (err != NULL || shared == NULL) {
+    if (err != NULL) {
+      wasmtime_bench_error_take(error_out, err);
+    } else {
+      wasmtime_bench_error_message(error_out, "thread: sharedmemory_new failed");
+    }
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  wasmtime_thread_runtime_t *runtime =
+    (wasmtime_thread_runtime_t *)calloc(1, sizeof(wasmtime_thread_runtime_t));
+  if (runtime == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: runtime alloc failed");
+    wasmtime_sharedmemory_delete(shared);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  runtime->engine = engine;
+  runtime->shared = shared;
+  runtime->pages = pages;
+  return (uint64_t)(uintptr_t)runtime;
+#endif
+}
+
+void wasmtime_thread_runtime_delete(uint64_t handle) {
+#if defined(_WIN32)
+  (void)handle;
+#else
+  if (handle == 0) {
+    return;
+  }
+  wasmtime_thread_runtime_t *runtime =
+    (wasmtime_thread_runtime_t *)(uintptr_t)handle;
+  if (runtime->shared != NULL) {
+    wasmtime_sharedmemory_delete(runtime->shared);
+  }
+  if (runtime->engine != NULL) {
+    wasm_engine_delete(runtime->engine);
+  }
+  free(runtime);
+#endif
+}
+
+uint64_t wasmtime_thread_runtime_spawn_wat(
+  uint64_t runtime_handle,
+  const uint8_t *wat,
+  int32_t wat_len,
+  const uint8_t *func_name,
+  int32_t func_name_len,
+  const uint8_t *args,
+  int32_t args_len,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  (void)wat;
+  (void)wat_len;
+  (void)func_name;
+  (void)func_name_len;
+  (void)args;
+  (void)args_len;
+  wasmtime_bench_error_message(error_out, "thread: spawn not supported on windows");
+  return 0;
+#else
+  if (runtime_handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: runtime handle invalid");
+    return 0;
+  }
+  if (wat == NULL || wat_len <= 0) {
+    wasmtime_bench_error_message(error_out, "thread: wat input invalid");
+    return 0;
+  }
+  if (func_name == NULL || func_name_len <= 0) {
+    wasmtime_bench_error_message(error_out, "thread: func name invalid");
+    return 0;
+  }
+  if (args_len < 0) {
+    wasmtime_bench_error_message(error_out, "thread: args length invalid");
+    return 0;
+  }
+  size_t val_size = sizeof(wasmtime_val_t);
+  if (val_size == 0) {
+    wasmtime_bench_error_message(error_out, "thread: val size invalid");
+    return 0;
+  }
+  if (args_len % (int32_t)val_size != 0) {
+    wasmtime_bench_error_message(error_out, "thread: args length mismatch");
+    return 0;
+  }
+  size_t nargs = (size_t)args_len / val_size;
+  if (nargs > 0 && args == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: args missing");
+    return 0;
+  }
+  wasmtime_thread_runtime_t *runtime =
+    (wasmtime_thread_runtime_t *)(uintptr_t)runtime_handle;
+  if (runtime->engine == NULL || runtime->shared == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: runtime not initialized");
+    return 0;
+  }
+  wasm_byte_vec_t wasm = {0, NULL};
+  wasmtime_error_t *err = wasmtime_wat2wasm((const char *)wat, (size_t)wat_len, &wasm);
+  if (err != NULL) {
+    wasmtime_bench_error_take(error_out, err);
+    return 0;
+  }
+  wasmtime_module_t *module = NULL;
+  err = wasmtime_module_new(runtime->engine, wasm.data, wasm.size, &module);
+  wasm_byte_vec_delete(&wasm);
+  if (err != NULL || module == NULL) {
+    if (err != NULL) {
+      wasmtime_bench_error_take(error_out, err);
+    } else {
+      wasmtime_bench_error_message(error_out, "thread: module_new failed");
+    }
+    return 0;
+  }
+  wasmtime_thread_task_t *task =
+    (wasmtime_thread_task_t *)calloc(1, sizeof(wasmtime_thread_task_t));
+  if (task == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: task alloc failed");
+    wasmtime_module_delete(module);
+    return 0;
+  }
+  atomic_init(&task->done, false);
+  atomic_init(&task->detached, false);
+  atomic_init(&task->collected, false);
+  task->runtime = runtime;
+  task->module = module;
+  task->func_name = (char *)malloc((size_t)func_name_len);
+  if (task->func_name == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: func name alloc failed");
+    wasmtime_module_delete(module);
+    free(task);
+    return 0;
+  }
+  memcpy(task->func_name, func_name, (size_t)func_name_len);
+  task->func_name_len = (size_t)func_name_len;
+  task->nargs = nargs;
+  if (nargs > 0) {
+    task->args = (wasmtime_val_t *)malloc(nargs * sizeof(wasmtime_val_t));
+    if (task->args == NULL) {
+      wasmtime_bench_error_message(error_out, "thread: args alloc failed");
+      wasmtime_module_delete(module);
+      free(task->func_name);
+      free(task);
+      return 0;
+    }
+    memcpy(task->args, args, nargs * sizeof(wasmtime_val_t));
+  }
+  if (pthread_create(&task->thread, NULL, wasmtime_thread_main, task) != 0) {
+    wasmtime_bench_error_message(error_out, "thread: thread spawn failed");
+    wasmtime_module_delete(module);
+    if (task->args != NULL) {
+      free(task->args);
+    }
+    free(task->func_name);
+    free(task);
+    return 0;
+  }
+  return (uint64_t)(uintptr_t)task;
+#endif
+}
+
+uint64_t wasmtime_thread_runtime_spawn_wasm(
+  uint64_t runtime_handle,
+  const uint8_t *wasm,
+  int32_t wasm_len,
+  const uint8_t *func_name,
+  int32_t func_name_len,
+  const uint8_t *args,
+  int32_t args_len,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  (void)wasm;
+  (void)wasm_len;
+  (void)func_name;
+  (void)func_name_len;
+  (void)args;
+  (void)args_len;
+  wasmtime_bench_error_message(error_out, "thread: spawn not supported on windows");
+  return 0;
+#else
+  if (runtime_handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: runtime handle invalid");
+    return 0;
+  }
+  if (wasm == NULL || wasm_len <= 0) {
+    wasmtime_bench_error_message(error_out, "thread: wasm input invalid");
+    return 0;
+  }
+  if (func_name == NULL || func_name_len <= 0) {
+    wasmtime_bench_error_message(error_out, "thread: func name invalid");
+    return 0;
+  }
+  if (args_len < 0) {
+    wasmtime_bench_error_message(error_out, "thread: args length invalid");
+    return 0;
+  }
+  size_t val_size = sizeof(wasmtime_val_t);
+  if (val_size == 0) {
+    wasmtime_bench_error_message(error_out, "thread: val size invalid");
+    return 0;
+  }
+  if (args_len % (int32_t)val_size != 0) {
+    wasmtime_bench_error_message(error_out, "thread: args length mismatch");
+    return 0;
+  }
+  size_t nargs = (size_t)args_len / val_size;
+  if (nargs > 0 && args == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: args missing");
+    return 0;
+  }
+  wasmtime_thread_runtime_t *runtime =
+    (wasmtime_thread_runtime_t *)(uintptr_t)runtime_handle;
+  if (runtime->engine == NULL || runtime->shared == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: runtime not initialized");
+    return 0;
+  }
+  wasmtime_module_t *module = NULL;
+  wasmtime_error_t *err =
+    wasmtime_module_new(runtime->engine, wasm, (size_t)wasm_len, &module);
+  if (err != NULL || module == NULL) {
+    if (err != NULL) {
+      wasmtime_bench_error_take(error_out, err);
+    } else {
+      wasmtime_bench_error_message(error_out, "thread: module_new failed");
+    }
+    return 0;
+  }
+  wasmtime_thread_task_t *task =
+    (wasmtime_thread_task_t *)calloc(1, sizeof(wasmtime_thread_task_t));
+  if (task == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: task alloc failed");
+    wasmtime_module_delete(module);
+    return 0;
+  }
+  atomic_init(&task->done, false);
+  atomic_init(&task->detached, false);
+  atomic_init(&task->collected, false);
+  task->runtime = runtime;
+  task->module = module;
+  task->func_name = (char *)malloc((size_t)func_name_len);
+  if (task->func_name == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: func name alloc failed");
+    wasmtime_module_delete(module);
+    free(task);
+    return 0;
+  }
+  memcpy(task->func_name, func_name, (size_t)func_name_len);
+  task->func_name_len = (size_t)func_name_len;
+  task->nargs = nargs;
+  if (nargs > 0) {
+    task->args = (wasmtime_val_t *)malloc(nargs * sizeof(wasmtime_val_t));
+    if (task->args == NULL) {
+      wasmtime_bench_error_message(error_out, "thread: args alloc failed");
+      wasmtime_module_delete(module);
+      free(task->func_name);
+      free(task);
+      return 0;
+    }
+    memcpy(task->args, args, nargs * sizeof(wasmtime_val_t));
+  }
+  if (pthread_create(&task->thread, NULL, wasmtime_thread_main, task) != 0) {
+    wasmtime_bench_error_message(error_out, "thread: thread spawn failed");
+    wasmtime_module_delete(module);
+    if (task->args != NULL) {
+      free(task->args);
+    }
+    free(task->func_name);
+    free(task);
+    return 0;
+  }
+  return (uint64_t)(uintptr_t)task;
+#endif
+}
+
+bool wasmtime_thread_runtime_join(uint64_t handle, uint8_t *error_out) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)handle;
+  wasmtime_bench_error_message(error_out, "thread: join not supported on windows");
+  return false;
+#else
+  if (handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: handle invalid");
+    return false;
+  }
+  wasmtime_thread_task_t *task = (wasmtime_thread_task_t *)(uintptr_t)handle;
+  if (!wasmtime_thread_task_mark_collected(task)) {
+    wasmtime_bench_error_message(error_out, "thread: handle already detached");
+    return false;
+  }
+  pthread_join(task->thread, NULL);
+  bool ok = task->error == NULL;
+  if (!ok) {
+    wasmtime_bench_error_take(error_out, task->error);
+    task->error = NULL;
+  }
+  wasmtime_thread_task_cleanup(task);
+  return ok;
+#endif
+}
+
+bool wasmtime_thread_runtime_try_join(uint64_t handle, uint8_t *error_out) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)handle;
+  wasmtime_bench_error_message(error_out, "thread: try_join not supported on windows");
+  return false;
+#else
+  if (handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: handle invalid");
+    return false;
+  }
+  wasmtime_thread_task_t *task = (wasmtime_thread_task_t *)(uintptr_t)handle;
+  if (!atomic_load_explicit(&task->done, memory_order_acquire)) {
+    return false;
+  }
+  if (!wasmtime_thread_task_mark_collected(task)) {
+    wasmtime_bench_error_message(error_out, "thread: handle already detached");
+    return false;
+  }
+  pthread_join(task->thread, NULL);
+  bool ok = task->error == NULL;
+  if (!ok) {
+    wasmtime_bench_error_take(error_out, task->error);
+    task->error = NULL;
+  }
+  wasmtime_thread_task_cleanup(task);
+  return true;
+#endif
+}
+
+bool wasmtime_thread_runtime_detach(uint64_t handle, uint8_t *error_out) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)handle;
+  wasmtime_bench_error_message(error_out, "thread: detach not supported on windows");
+  return false;
+#else
+  if (handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: handle invalid");
+    return false;
+  }
+  wasmtime_thread_task_t *task = (wasmtime_thread_task_t *)(uintptr_t)handle;
+  atomic_store_explicit(&task->detached, true, memory_order_release);
+  if (atomic_load_explicit(&task->done, memory_order_acquire)) {
+    if (!wasmtime_thread_task_mark_collected(task)) {
+      wasmtime_bench_error_message(error_out, "thread: handle already detached");
+      return false;
+    }
+    pthread_join(task->thread, NULL);
+    bool ok = task->error == NULL;
+    if (!ok) {
+      wasmtime_bench_error_take(error_out, task->error);
+      task->error = NULL;
+    }
+    wasmtime_thread_task_cleanup(task);
+    return ok;
+  }
+  if (pthread_detach(task->thread) != 0) {
+    wasmtime_bench_error_message(error_out, "thread: detach failed");
+    return false;
+  }
+  return true;
+#endif
+}
+
+bool wasmtime_thread_runtime_mem_write(
+  uint64_t runtime_handle,
+  uint64_t offset,
+  const uint8_t *src,
+  int32_t len,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  (void)offset;
+  (void)src;
+  (void)len;
+  wasmtime_bench_error_message(error_out, "thread: mem_write not supported on windows");
+  return false;
+#else
+  if (runtime_handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: runtime handle invalid");
+    return false;
+  }
+  if (len < 0) {
+    wasmtime_bench_error_message(error_out, "thread: mem_write length invalid");
+    return false;
+  }
+  uint64_t length = (uint64_t)len;
+  if (length > 0 && src == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: mem_write source missing");
+    return false;
+  }
+  wasmtime_thread_runtime_t *runtime =
+    (wasmtime_thread_runtime_t *)(uintptr_t)runtime_handle;
+  if (runtime->shared == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: shared memory missing");
+    return false;
+  }
+  uint8_t *data = wasmtime_sharedmemory_data(runtime->shared);
+  size_t data_size = wasmtime_sharedmemory_data_size(runtime->shared);
+  if (data == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: shared memory data unavailable");
+    return false;
+  }
+  uint64_t size = (uint64_t)data_size;
+  if (offset > size || length > size - offset) {
+    wasmtime_bench_error_message(error_out, "thread: mem_write out of bounds");
+    return false;
+  }
+  if (length > 0) {
+    memcpy(data + offset, src, (size_t)length);
+  }
+  return true;
+#endif
+}
+
+bool wasmtime_thread_runtime_mem_read(
+  uint64_t runtime_handle,
+  uint64_t offset,
+  uint8_t *dst,
+  int32_t len,
+  uint8_t *error_out
+) {
+  wasmtime_bench_error_clear(error_out);
+#if defined(_WIN32)
+  (void)runtime_handle;
+  (void)offset;
+  (void)dst;
+  (void)len;
+  wasmtime_bench_error_message(error_out, "thread: mem_read not supported on windows");
+  return false;
+#else
+  if (runtime_handle == 0) {
+    wasmtime_bench_error_message(error_out, "thread: runtime handle invalid");
+    return false;
+  }
+  if (len < 0) {
+    wasmtime_bench_error_message(error_out, "thread: mem_read length invalid");
+    return false;
+  }
+  uint64_t length = (uint64_t)len;
+  if (length > 0 && dst == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: mem_read dest missing");
+    return false;
+  }
+  wasmtime_thread_runtime_t *runtime =
+    (wasmtime_thread_runtime_t *)(uintptr_t)runtime_handle;
+  if (runtime->shared == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: shared memory missing");
+    return false;
+  }
+  uint8_t *data = wasmtime_sharedmemory_data(runtime->shared);
+  size_t data_size = wasmtime_sharedmemory_data_size(runtime->shared);
+  if (data == NULL) {
+    wasmtime_bench_error_message(error_out, "thread: shared memory data unavailable");
+    return false;
+  }
+  uint64_t size = (uint64_t)data_size;
+  if (offset > size || length > size - offset) {
+    wasmtime_bench_error_message(error_out, "thread: mem_read out of bounds");
+    return false;
+  }
+  if (length > 0) {
+    memcpy(dst, data + offset, (size_t)length);
+  }
+  return true;
+#endif
+}
+
+uint64_t wasmtime_bench_os_shared_ring(
+  int32_t items,
+  int32_t slots,
+  uint8_t *error_out,
+  uint8_t *prod_spins_out,
+  uint8_t *cons_spins_out
+) {
+  wasmtime_bench_error_clear(error_out);
+  wasmtime_bench_clear_u64(prod_spins_out);
+  wasmtime_bench_clear_u64(cons_spins_out);
+#if defined(_WIN32)
+  (void)items;
+  (void)slots;
+  wasmtime_bench_error_message(error_out, "bench: os shared memory not supported on windows");
+  return 0;
+#else
+  if (items <= 0 || slots <= 1) {
+    wasmtime_bench_error_message(error_out, "bench: invalid items or slots");
+    return 0;
+  }
+  if ((slots & (slots - 1)) != 0) {
+    wasmtime_bench_error_message(error_out, "bench: slots must be power of two");
+    return 0;
+  }
+  if ((uint64_t)items > UINT32_MAX) {
+    wasmtime_bench_error_message(error_out, "bench: items exceed i32");
+    return 0;
+  }
+  size_t header_size = sizeof(wasmtime_ring_header_t);
+  if (header_size != 32) {
+    wasmtime_bench_error_message(error_out, "bench: ring header size mismatch");
+    return 0;
+  }
+  size_t size = header_size + (size_t)slots * sizeof(uint32_t);
+  void *mem = mmap(
+    NULL,
+    size,
+    PROT_READ | PROT_WRITE,
+    MAP_SHARED | MAP_ANONYMOUS,
+    -1,
+    0
+  );
+  if (mem == MAP_FAILED) {
+    wasmtime_bench_error_message(error_out, "bench: mmap failed");
+    return 0;
+  }
+  wasmtime_ring_header_t *ring = (wasmtime_ring_header_t *)mem;
+  uint32_t *data = (uint32_t *)((uint8_t *)mem + header_size);
+  atomic_store_explicit(&ring->head, 0, memory_order_relaxed);
+  atomic_store_explicit(&ring->tail, 0, memory_order_relaxed);
+  ring->sum = 0;
+  memset(data, 0, (size_t)slots * sizeof(uint32_t));
+  pthread_t threads[2];
+  wasmtime_os_ring_thread_args_t args[2];
+  uint32_t mask = (uint32_t)(slots - 1);
+  args[0].ring = ring;
+  args[0].data = data;
+  args[0].items = (uint32_t)items;
+  args[0].mask = mask;
+  args[0].ready_count = NULL;
+  args[0].start_flag = NULL;
+  args[1] = args[0];
+  uint64_t start = moonbit_clock_now_ns();
+  int32_t started = 0;
+  if (pthread_create(&threads[started], NULL, wasmtime_os_ring_producer_main, &args[0]) == 0) {
+    started++;
+  }
+  if (pthread_create(&threads[started], NULL, wasmtime_os_ring_consumer_main, &args[1]) == 0) {
+    started++;
+  }
+  for (int32_t i = 0; i < started; i++) {
+    pthread_join(threads[i], NULL);
+  }
+  uint64_t end = moonbit_clock_now_ns();
+  uint32_t head = atomic_load_explicit(&ring->head, memory_order_relaxed);
+  uint32_t tail = atomic_load_explicit(&ring->tail, memory_order_relaxed);
+  uint64_t sum = ring->sum;
+  uint64_t prod_spins = ring->prod_spins;
+  uint64_t cons_spins = ring->cons_spins;
+  munmap(mem, size);
+  if (started != 2) {
+    wasmtime_bench_error_message(error_out, "bench: thread spawn failed");
+    return 0;
+  }
+  uint64_t expected = ((uint64_t)items * (uint64_t)(items + 1)) / 2;
+  if (head != (uint32_t)items || tail != (uint32_t)items) {
+    wasmtime_bench_error_message(error_out, "bench: head/tail mismatch");
+    return 0;
+  }
+  if (sum != expected) {
+    wasmtime_bench_error_message(error_out, "bench: sum mismatch");
+    return 0;
+  }
+  wasmtime_bench_write_u64(prod_spins_out, prod_spins);
+  wasmtime_bench_write_u64(cons_spins_out, cons_spins);
+  return end - start;
+#endif
+}
+
+
+uint64_t wasmtime_bench_wasm_shared_ring(
+  int32_t items,
+  int32_t slots,
+  uint8_t *error_out,
+  uint8_t *prod_spins_out,
+  uint8_t *cons_spins_out
+) {
+  wasmtime_bench_error_clear(error_out);
+  wasmtime_bench_clear_u64(prod_spins_out);
+  wasmtime_bench_clear_u64(cons_spins_out);
+#if defined(_WIN32)
+  (void)items;
+  (void)slots;
+  wasmtime_bench_error_message(error_out, "bench: wasm shared memory not supported on windows");
+  return 0;
+#else
+  if (items <= 0 || slots <= 1) {
+    wasmtime_bench_error_message(error_out, "bench: invalid items or slots");
+    return 0;
+  }
+  if ((slots & (slots - 1)) != 0) {
+    wasmtime_bench_error_message(error_out, "bench: slots must be power of two");
+    return 0;
+  }
+  if ((uint64_t)items > UINT32_MAX) {
+    wasmtime_bench_error_message(error_out, "bench: items exceed i32");
+    return 0;
+  }
+  size_t header_size = sizeof(wasmtime_ring_header_t);
+  if (header_size != 32) {
+    wasmtime_bench_error_message(error_out, "bench: ring header size mismatch");
+    return 0;
+  }
+  uint64_t bytes_needed = (uint64_t)header_size + (uint64_t)slots * sizeof(uint32_t);
+  uint64_t pages = (bytes_needed + 65535ULL) / 65536ULL;
+  if (pages == 0) {
+    pages = 1;
+  }
+  wasm_config_t *config = wasm_config_new();
+  if (config == NULL) {
+    wasmtime_bench_error_message(error_out, "bench: config_new failed");
+    return 0;
+  }
+  wasmtime_config_wasm_threads_set(config, true);
+  wasmtime_config_shared_memory_set(config, true);
+  wasm_engine_t *engine = wasm_engine_new_with_config(config);
+  if (engine == NULL) {
+    wasm_config_delete(config);
+    wasmtime_bench_error_message(error_out, "bench: engine_new_with_config failed");
+    return 0;
+  }
+  char wat_buf[4096];
+  int wat_len = snprintf(
+    wat_buf,
+    sizeof(wat_buf),
+    "(module\n"
+    "  (memory (import \"env\" \"mem\") %llu %llu shared)\n"
+    "  (func (export \"produce\") (param $n i32) (param $mask i32)\n"
+    "    (local $i i32) (local $head i32) (local $tail i32) (local $cap i32) (local $addr i32) (local $spins i64)\n"
+    "    (local.set $i (i32.const 0))\n"
+    "    (local.set $cap (i32.add (local.get $mask) (i32.const 1)))\n"
+    "    (local.set $head (i32.atomic.load (i32.const 0)))\n"
+    "    (local.set $spins (i64.const 0))\n"
+    "    (loop $loop\n"
+    "      (block $wait\n"
+    "        (loop $spin\n"
+    "          (local.set $tail (i32.atomic.load (i32.const 4)))\n"
+    "          (br_if $wait (i32.lt_u (i32.sub (local.get $head) (local.get $tail)) (local.get $cap)))\n"
+    "          (local.set $spins (i64.add (local.get $spins) (i64.const 1)))\n"
+    "          (br $spin)\n"
+    "        )\n"
+    "      )\n"
+    "      (local.set $addr\n"
+    "        (i32.add\n"
+    "          (i32.const 32)\n"
+    "          (i32.shl (i32.and (local.get $head) (local.get $mask)) (i32.const 2))\n"
+    "        )\n"
+    "      )\n"
+    "      (i32.store (local.get $addr) (i32.add (local.get $i) (i32.const 1)))\n"
+    "      (local.set $head (i32.add (local.get $head) (i32.const 1)))\n"
+    "      (i32.atomic.store (i32.const 0) (local.get $head))\n"
+    "      (local.set $i (i32.add (local.get $i) (i32.const 1)))\n"
+    "      (br_if $loop (i32.lt_u (local.get $i) (local.get $n)))\n"
+    "    )\n"
+    "    (i64.store (i32.const 16) (local.get $spins))\n"
+    "  )\n"
+    "  (func (export \"consume\") (param $n i32) (param $mask i32)\n"
+    "    (local $i i32) (local $head i32) (local $tail i32) (local $addr i32) (local $sum i64) (local $spins i64)\n"
+    "    (local.set $i (i32.const 0))\n"
+    "    (local.set $tail (i32.atomic.load (i32.const 4)))\n"
+    "    (local.set $sum (i64.const 0))\n"
+    "    (local.set $spins (i64.const 0))\n"
+    "    (loop $loop\n"
+    "      (block $wait\n"
+    "        (loop $spin\n"
+    "          (local.set $head (i32.atomic.load (i32.const 0)))\n"
+    "          (br_if $wait (i32.ne (local.get $head) (local.get $tail)))\n"
+    "          (local.set $spins (i64.add (local.get $spins) (i64.const 1)))\n"
+    "          (br $spin)\n"
+    "        )\n"
+    "      )\n"
+    "      (local.set $addr\n"
+    "        (i32.add\n"
+    "          (i32.const 32)\n"
+    "          (i32.shl (i32.and (local.get $tail) (local.get $mask)) (i32.const 2))\n"
+    "        )\n"
+    "      )\n"
+    "      (local.set $sum\n"
+    "        (i64.add (local.get $sum) (i64.extend_i32_u (i32.load (local.get $addr))))\n"
+    "      )\n"
+    "      (local.set $tail (i32.add (local.get $tail) (i32.const 1)))\n"
+    "      (i32.atomic.store (i32.const 4) (local.get $tail))\n"
+    "      (local.set $i (i32.add (local.get $i) (i32.const 1)))\n"
+    "      (br_if $loop (i32.lt_u (local.get $i) (local.get $n)))\n"
+    "    )\n"
+    "    (i64.store (i32.const 8) (local.get $sum))\n"
+    "    (i64.store (i32.const 24) (local.get $spins))\n"
+    "  )\n"
+    ")\n",
+    (unsigned long long)pages,
+    (unsigned long long)pages
+  );
+  if (wat_len <= 0 || (size_t)wat_len >= sizeof(wat_buf)) {
+    wasm_engine_delete(engine);
+    wasmtime_bench_error_message(error_out, "bench: wat buffer overflow");
+    return 0;
+  }
+  wasm_byte_vec_t wasm = {0, NULL};
+  wasmtime_error_t *err = wasmtime_wat2wasm(wat_buf, (size_t)wat_len, &wasm);
+  if (err != NULL) {
+    wasmtime_bench_error_take(error_out, err);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  wasmtime_module_t *module = NULL;
+  err = wasmtime_module_new(engine, wasm.data, wasm.size, &module);
+  wasm_byte_vec_delete(&wasm);
+  if (err != NULL || module == NULL) {
+    if (err != NULL) {
+      wasmtime_bench_error_take(error_out, err);
+    } else {
+      wasmtime_bench_error_message(error_out, "bench: module_new failed");
+    }
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  wasm_memorytype_t *mem_ty = NULL;
+  err = wasmtime_memorytype_new(pages, true, pages, false, true, 16, &mem_ty);
+  if (err != NULL || mem_ty == NULL) {
+    if (err != NULL) {
+      wasmtime_bench_error_take(error_out, err);
+    } else {
+      wasmtime_bench_error_message(error_out, "bench: memorytype_new failed");
+    }
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  wasmtime_sharedmemory_t *shared = NULL;
+  err = wasmtime_sharedmemory_new(engine, mem_ty, &shared);
+  wasm_memorytype_delete(mem_ty);
+  if (err != NULL || shared == NULL) {
+    if (err != NULL) {
+      wasmtime_bench_error_take(error_out, err);
+    } else {
+      wasmtime_bench_error_message(error_out, "bench: sharedmemory_new failed");
+    }
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  uint8_t *data = wasmtime_sharedmemory_data(shared);
+  size_t data_size = wasmtime_sharedmemory_data_size(shared);
+  if (data == NULL || data_size < (size_t)bytes_needed) {
+    wasmtime_bench_error_message(error_out, "bench: shared memory data unavailable");
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  memset(data, 0, (size_t)bytes_needed);
+  pthread_t threads[2];
+  wasmtime_wasm_ring_thread_args_t args[2];
+  uint32_t mask = (uint32_t)(slots - 1);
+  atomic_int error_code;
+  atomic_init(&error_code, WASMTIME_BENCH_ERR_NONE);
+  args[0].engine = engine;
+  args[0].module = module;
+  args[0].shared = shared;
+  args[0].items = (uint32_t)items;
+  args[0].mask = mask;
+  args[0].func_name = "produce";
+  args[0].func_name_len = 7;
+  args[0].error_code = &error_code;
+  args[0].ready_count = NULL;
+  args[0].start_flag = NULL;
+  args[1] = args[0];
+  args[1].func_name = "consume";
+  args[1].func_name_len = 7;
+  uint64_t start = moonbit_clock_now_ns();
+  int32_t started = 0;
+  if (pthread_create(&threads[started], NULL, wasmtime_wasm_ring_thread_main, &args[0]) == 0) {
+    started++;
+  }
+  if (pthread_create(&threads[started], NULL, wasmtime_wasm_ring_thread_main, &args[1]) == 0) {
+    started++;
+  }
+  for (int32_t i = 0; i < started; i++) {
+    pthread_join(threads[i], NULL);
+  }
+  uint64_t end = moonbit_clock_now_ns();
+  if (started != 2) {
+    wasmtime_bench_error_message(error_out, "bench: thread spawn failed");
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  int code = atomic_load(&error_code);
+  if (code != WASMTIME_BENCH_ERR_NONE) {
+    const char *msg = "bench: wasm thread failed";
+    switch (code) {
+      case WASMTIME_BENCH_ERR_STORE:
+        msg = "bench: store_new failed";
+        break;
+      case WASMTIME_BENCH_ERR_LINKER:
+        msg = "bench: linker_new failed";
+        break;
+      case WASMTIME_BENCH_ERR_SHARED_CLONE:
+        msg = "bench: sharedmemory_clone failed";
+        break;
+      case WASMTIME_BENCH_ERR_DEFINE:
+        msg = "bench: linker_define failed";
+        break;
+      case WASMTIME_BENCH_ERR_INSTANTIATE:
+        msg = "bench: instantiate failed";
+        break;
+      case WASMTIME_BENCH_ERR_EXPORT:
+        msg = "bench: export_get failed";
+        break;
+      case WASMTIME_BENCH_ERR_EXPORT_KIND:
+        msg = "bench: export kind mismatch";
+        break;
+      case WASMTIME_BENCH_ERR_CALL:
+        msg = "bench: func_call failed";
+        break;
+      default:
+        break;
+    }
+    wasmtime_bench_error_message(error_out, msg);
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  uint32_t head = 0;
+  uint32_t tail = 0;
+  uint64_t sum = 0;
+  uint64_t prod_spins = 0;
+  uint64_t cons_spins = 0;
+  memcpy(&head, data, sizeof(head));
+  memcpy(&tail, data + 4, sizeof(tail));
+  memcpy(&sum, data + 8, sizeof(sum));
+  memcpy(&prod_spins, data + 16, sizeof(prod_spins));
+  memcpy(&cons_spins, data + 24, sizeof(cons_spins));
+  uint64_t expected = ((uint64_t)items * (uint64_t)(items + 1)) / 2;
+  if (head != (uint32_t)items || tail != (uint32_t)items) {
+    wasmtime_bench_error_message(error_out, "bench: head/tail mismatch");
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  if (sum != expected) {
+    wasmtime_bench_error_message(error_out, "bench: sum mismatch");
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  wasmtime_bench_write_u64(prod_spins_out, prod_spins);
+  wasmtime_bench_write_u64(cons_spins_out, cons_spins);
+  wasmtime_sharedmemory_delete(shared);
+  wasmtime_module_delete(module);
+  wasm_engine_delete(engine);
+  return end - start;
+#endif
+}
+
+
+uint64_t wasmtime_bench_os_shared_ring_warm(
+  int32_t items,
+  int32_t slots,
+  uint8_t *error_out,
+  uint8_t *prod_spins_out,
+  uint8_t *cons_spins_out
+) {
+  wasmtime_bench_error_clear(error_out);
+  wasmtime_bench_clear_u64(prod_spins_out);
+  wasmtime_bench_clear_u64(cons_spins_out);
+#if defined(_WIN32)
+  (void)items;
+  (void)slots;
+  wasmtime_bench_error_message(error_out, "bench: os shared memory not supported on windows");
+  return 0;
+#else
+  if (items <= 0 || slots <= 1) {
+    wasmtime_bench_error_message(error_out, "bench: invalid items or slots");
+    return 0;
+  }
+  if ((slots & (slots - 1)) != 0) {
+    wasmtime_bench_error_message(error_out, "bench: slots must be power of two");
+    return 0;
+  }
+  if ((uint64_t)items > UINT32_MAX) {
+    wasmtime_bench_error_message(error_out, "bench: items exceed i32");
+    return 0;
+  }
+  size_t header_size = sizeof(wasmtime_ring_header_t);
+  if (header_size != 32) {
+    wasmtime_bench_error_message(error_out, "bench: ring header size mismatch");
+    return 0;
+  }
+  size_t size = header_size + (size_t)slots * sizeof(uint32_t);
+  void *mem = mmap(
+    NULL,
+    size,
+    PROT_READ | PROT_WRITE,
+    MAP_SHARED | MAP_ANONYMOUS,
+    -1,
+    0
+  );
+  if (mem == MAP_FAILED) {
+    wasmtime_bench_error_message(error_out, "bench: mmap failed");
+    return 0;
+  }
+  wasmtime_ring_header_t *ring = (wasmtime_ring_header_t *)mem;
+  uint32_t *data = (uint32_t *)((uint8_t *)mem + header_size);
+  atomic_store_explicit(&ring->head, 0, memory_order_relaxed);
+  atomic_store_explicit(&ring->tail, 0, memory_order_relaxed);
+  ring->sum = 0;
+  memset(data, 0, (size_t)slots * sizeof(uint32_t));
+  pthread_t threads[2];
+  wasmtime_os_ring_thread_args_t args[2];
+  atomic_int ready_count;
+  atomic_init(&ready_count, 0);
+  atomic_bool start_flag;
+  atomic_init(&start_flag, false);
+  uint32_t mask = (uint32_t)(slots - 1);
+  args[0].ring = ring;
+  args[0].data = data;
+  args[0].items = (uint32_t)items;
+  args[0].mask = mask;
+  args[0].ready_count = &ready_count;
+  args[0].start_flag = &start_flag;
+  args[1] = args[0];
+  int32_t started = 0;
+  if (pthread_create(&threads[started], NULL, wasmtime_os_ring_producer_main, &args[0]) == 0) {
+    started++;
+  }
+  if (pthread_create(&threads[started], NULL, wasmtime_os_ring_consumer_main, &args[1]) == 0) {
+    started++;
+  }
+  while (atomic_load_explicit(&ready_count, memory_order_acquire) != started) {
+    sched_yield();
+  }
+  uint64_t start = moonbit_clock_now_ns();
+  atomic_store_explicit(&start_flag, true, memory_order_release);
+  for (int32_t i = 0; i < started; i++) {
+    pthread_join(threads[i], NULL);
+  }
+  uint64_t end = moonbit_clock_now_ns();
+  uint32_t head = atomic_load_explicit(&ring->head, memory_order_relaxed);
+  uint32_t tail = atomic_load_explicit(&ring->tail, memory_order_relaxed);
+  uint64_t sum = ring->sum;
+  uint64_t prod_spins = ring->prod_spins;
+  uint64_t cons_spins = ring->cons_spins;
+  munmap(mem, size);
+  if (started != 2) {
+    wasmtime_bench_error_message(error_out, "bench: thread spawn failed");
+    return 0;
+  }
+  uint64_t expected = ((uint64_t)items * (uint64_t)(items + 1)) / 2;
+  if (head != (uint32_t)items || tail != (uint32_t)items) {
+    wasmtime_bench_error_message(error_out, "bench: head/tail mismatch");
+    return 0;
+  }
+  if (sum != expected) {
+    wasmtime_bench_error_message(error_out, "bench: sum mismatch");
+    return 0;
+  }
+  wasmtime_bench_write_u64(prod_spins_out, prod_spins);
+  wasmtime_bench_write_u64(cons_spins_out, cons_spins);
+  return end - start;
+#endif
+}
+
+
+uint64_t wasmtime_bench_wasm_shared_ring_warm(
+  int32_t items,
+  int32_t slots,
+  uint8_t *error_out,
+  uint8_t *prod_spins_out,
+  uint8_t *cons_spins_out
+) {
+  wasmtime_bench_error_clear(error_out);
+  wasmtime_bench_clear_u64(prod_spins_out);
+  wasmtime_bench_clear_u64(cons_spins_out);
+#if defined(_WIN32)
+  (void)items;
+  (void)slots;
+  wasmtime_bench_error_message(error_out, "bench: wasm shared memory not supported on windows");
+  return 0;
+#else
+  if (items <= 0 || slots <= 1) {
+    wasmtime_bench_error_message(error_out, "bench: invalid items or slots");
+    return 0;
+  }
+  if ((slots & (slots - 1)) != 0) {
+    wasmtime_bench_error_message(error_out, "bench: slots must be power of two");
+    return 0;
+  }
+  if ((uint64_t)items > UINT32_MAX) {
+    wasmtime_bench_error_message(error_out, "bench: items exceed i32");
+    return 0;
+  }
+  size_t header_size = sizeof(wasmtime_ring_header_t);
+  if (header_size != 32) {
+    wasmtime_bench_error_message(error_out, "bench: ring header size mismatch");
+    return 0;
+  }
+  uint64_t bytes_needed = (uint64_t)header_size + (uint64_t)slots * sizeof(uint32_t);
+  uint64_t pages = (bytes_needed + 65535ULL) / 65536ULL;
+  if (pages == 0) {
+    pages = 1;
+  }
+  wasm_config_t *config = wasm_config_new();
+  if (config == NULL) {
+    wasmtime_bench_error_message(error_out, "bench: config_new failed");
+    return 0;
+  }
+  wasmtime_config_wasm_threads_set(config, true);
+  wasmtime_config_shared_memory_set(config, true);
+  wasm_engine_t *engine = wasm_engine_new_with_config(config);
+  if (engine == NULL) {
+    wasm_config_delete(config);
+    wasmtime_bench_error_message(error_out, "bench: engine_new_with_config failed");
+    return 0;
+  }
+  char wat_buf[4096];
+  int wat_len = snprintf(
+    wat_buf,
+    sizeof(wat_buf),
+    "(module\n"
+    "  (memory (import \"env\" \"mem\") %llu %llu shared)\n"
+    "  (func (export \"produce\") (param $n i32) (param $mask i32)\n"
+    "    (local $i i32) (local $head i32) (local $tail i32) (local $cap i32) (local $addr i32) (local $spins i64)\n"
+    "    (local.set $i (i32.const 0))\n"
+    "    (local.set $cap (i32.add (local.get $mask) (i32.const 1)))\n"
+    "    (local.set $head (i32.atomic.load (i32.const 0)))\n"
+    "    (local.set $spins (i64.const 0))\n"
+    "    (loop $loop\n"
+    "      (block $wait\n"
+    "        (loop $spin\n"
+    "          (local.set $tail (i32.atomic.load (i32.const 4)))\n"
+    "          (br_if $wait (i32.lt_u (i32.sub (local.get $head) (local.get $tail)) (local.get $cap)))\n"
+    "          (local.set $spins (i64.add (local.get $spins) (i64.const 1)))\n"
+    "          (br $spin)\n"
+    "        )\n"
+    "      )\n"
+    "      (local.set $addr\n"
+    "        (i32.add\n"
+    "          (i32.const 32)\n"
+    "          (i32.shl (i32.and (local.get $head) (local.get $mask)) (i32.const 2))\n"
+    "        )\n"
+    "      )\n"
+    "      (i32.store (local.get $addr) (i32.add (local.get $i) (i32.const 1)))\n"
+    "      (local.set $head (i32.add (local.get $head) (i32.const 1)))\n"
+    "      (i32.atomic.store (i32.const 0) (local.get $head))\n"
+    "      (local.set $i (i32.add (local.get $i) (i32.const 1)))\n"
+    "      (br_if $loop (i32.lt_u (local.get $i) (local.get $n)))\n"
+    "    )\n"
+    "    (i64.store (i32.const 16) (local.get $spins))\n"
+    "  )\n"
+    "  (func (export \"consume\") (param $n i32) (param $mask i32)\n"
+    "    (local $i i32) (local $head i32) (local $tail i32) (local $addr i32) (local $sum i64) (local $spins i64)\n"
+    "    (local.set $i (i32.const 0))\n"
+    "    (local.set $tail (i32.atomic.load (i32.const 4)))\n"
+    "    (local.set $sum (i64.const 0))\n"
+    "    (local.set $spins (i64.const 0))\n"
+    "    (loop $loop\n"
+    "      (block $wait\n"
+    "        (loop $spin\n"
+    "          (local.set $head (i32.atomic.load (i32.const 0)))\n"
+    "          (br_if $wait (i32.ne (local.get $head) (local.get $tail)))\n"
+    "          (local.set $spins (i64.add (local.get $spins) (i64.const 1)))\n"
+    "          (br $spin)\n"
+    "        )\n"
+    "      )\n"
+    "      (local.set $addr\n"
+    "        (i32.add\n"
+    "          (i32.const 32)\n"
+    "          (i32.shl (i32.and (local.get $tail) (local.get $mask)) (i32.const 2))\n"
+    "        )\n"
+    "      )\n"
+    "      (local.set $sum\n"
+    "        (i64.add (local.get $sum) (i64.extend_i32_u (i32.load (local.get $addr))))\n"
+    "      )\n"
+    "      (local.set $tail (i32.add (local.get $tail) (i32.const 1)))\n"
+    "      (i32.atomic.store (i32.const 4) (local.get $tail))\n"
+    "      (local.set $i (i32.add (local.get $i) (i32.const 1)))\n"
+    "      (br_if $loop (i32.lt_u (local.get $i) (local.get $n)))\n"
+    "    )\n"
+    "    (i64.store (i32.const 8) (local.get $sum))\n"
+    "    (i64.store (i32.const 24) (local.get $spins))\n"
+    "  )\n"
+    ")\n",
+    (unsigned long long)pages,
+    (unsigned long long)pages
+  );
+  if (wat_len <= 0 || (size_t)wat_len >= sizeof(wat_buf)) {
+    wasm_engine_delete(engine);
+    wasmtime_bench_error_message(error_out, "bench: wat buffer overflow");
+    return 0;
+  }
+  wasm_byte_vec_t wasm = {0, NULL};
+  wasmtime_error_t *err = wasmtime_wat2wasm(wat_buf, (size_t)wat_len, &wasm);
+  if (err != NULL) {
+    wasmtime_bench_error_take(error_out, err);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  wasmtime_module_t *module = NULL;
+  err = wasmtime_module_new(engine, wasm.data, wasm.size, &module);
+  wasm_byte_vec_delete(&wasm);
+  if (err != NULL || module == NULL) {
+    if (err != NULL) {
+      wasmtime_bench_error_take(error_out, err);
+    } else {
+      wasmtime_bench_error_message(error_out, "bench: module_new failed");
+    }
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  wasm_memorytype_t *mem_ty = NULL;
+  err = wasmtime_memorytype_new(pages, true, pages, false, true, 16, &mem_ty);
+  if (err != NULL || mem_ty == NULL) {
+    if (err != NULL) {
+      wasmtime_bench_error_take(error_out, err);
+    } else {
+      wasmtime_bench_error_message(error_out, "bench: memorytype_new failed");
+    }
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  wasmtime_sharedmemory_t *shared = NULL;
+  err = wasmtime_sharedmemory_new(engine, mem_ty, &shared);
+  wasm_memorytype_delete(mem_ty);
+  if (err != NULL || shared == NULL) {
+    if (err != NULL) {
+      wasmtime_bench_error_take(error_out, err);
+    } else {
+      wasmtime_bench_error_message(error_out, "bench: sharedmemory_new failed");
+    }
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  uint8_t *data = wasmtime_sharedmemory_data(shared);
+  size_t data_size = wasmtime_sharedmemory_data_size(shared);
+  if (data == NULL || data_size < (size_t)bytes_needed) {
+    wasmtime_bench_error_message(error_out, "bench: shared memory data unavailable");
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  memset(data, 0, (size_t)bytes_needed);
+  pthread_t threads[2];
+  wasmtime_wasm_ring_thread_args_t args[2];
+  uint32_t mask = (uint32_t)(slots - 1);
+  atomic_int error_code;
+  atomic_init(&error_code, WASMTIME_BENCH_ERR_NONE);
+  atomic_int ready_count;
+  atomic_init(&ready_count, 0);
+  atomic_bool start_flag;
+  atomic_init(&start_flag, false);
+  args[0].engine = engine;
+  args[0].module = module;
+  args[0].shared = shared;
+  args[0].items = (uint32_t)items;
+  args[0].mask = mask;
+  args[0].func_name = "produce";
+  args[0].func_name_len = 7;
+  args[0].error_code = &error_code;
+  args[0].ready_count = &ready_count;
+  args[0].start_flag = &start_flag;
+  args[1] = args[0];
+  args[1].func_name = "consume";
+  args[1].func_name_len = 7;
+  int32_t started = 0;
+  if (pthread_create(&threads[started], NULL, wasmtime_wasm_ring_thread_main, &args[0]) == 0) {
+    started++;
+  }
+  if (pthread_create(&threads[started], NULL, wasmtime_wasm_ring_thread_main, &args[1]) == 0) {
+    started++;
+  }
+  while (atomic_load_explicit(&ready_count, memory_order_acquire) != started) {
+    sched_yield();
+  }
+  uint64_t start = moonbit_clock_now_ns();
+  atomic_store_explicit(&start_flag, true, memory_order_release);
+  for (int32_t i = 0; i < started; i++) {
+    pthread_join(threads[i], NULL);
+  }
+  uint64_t end = moonbit_clock_now_ns();
+  if (started != 2) {
+    wasmtime_bench_error_message(error_out, "bench: thread spawn failed");
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  int code = atomic_load(&error_code);
+  if (code != WASMTIME_BENCH_ERR_NONE) {
+    const char *msg = "bench: wasm thread failed";
+    switch (code) {
+      case WASMTIME_BENCH_ERR_STORE:
+        msg = "bench: store_new failed";
+        break;
+      case WASMTIME_BENCH_ERR_LINKER:
+        msg = "bench: linker_new failed";
+        break;
+      case WASMTIME_BENCH_ERR_SHARED_CLONE:
+        msg = "bench: sharedmemory_clone failed";
+        break;
+      case WASMTIME_BENCH_ERR_DEFINE:
+        msg = "bench: linker_define failed";
+        break;
+      case WASMTIME_BENCH_ERR_INSTANTIATE:
+        msg = "bench: instantiate failed";
+        break;
+      case WASMTIME_BENCH_ERR_EXPORT:
+        msg = "bench: export_get failed";
+        break;
+      case WASMTIME_BENCH_ERR_EXPORT_KIND:
+        msg = "bench: export kind mismatch";
+        break;
+      case WASMTIME_BENCH_ERR_CALL:
+        msg = "bench: func_call failed";
+        break;
+      default:
+        break;
+    }
+    wasmtime_bench_error_message(error_out, msg);
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  uint32_t head = 0;
+  uint32_t tail = 0;
+  uint64_t sum = 0;
+  uint64_t prod_spins = 0;
+  uint64_t cons_spins = 0;
+  memcpy(&head, data, sizeof(head));
+  memcpy(&tail, data + 4, sizeof(tail));
+  memcpy(&sum, data + 8, sizeof(sum));
+  memcpy(&prod_spins, data + 16, sizeof(prod_spins));
+  memcpy(&cons_spins, data + 24, sizeof(cons_spins));
+  uint64_t expected = ((uint64_t)items * (uint64_t)(items + 1)) / 2;
+  if (head != (uint32_t)items || tail != (uint32_t)items) {
+    wasmtime_bench_error_message(error_out, "bench: head/tail mismatch");
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  if (sum != expected) {
+    wasmtime_bench_error_message(error_out, "bench: sum mismatch");
+    wasmtime_sharedmemory_delete(shared);
+    wasmtime_module_delete(module);
+    wasm_engine_delete(engine);
+    return 0;
+  }
+  wasmtime_bench_write_u64(prod_spins_out, prod_spins);
+  wasmtime_bench_write_u64(cons_spins_out, cons_spins);
+  wasmtime_sharedmemory_delete(shared);
+  wasmtime_module_delete(module);
+  wasm_engine_delete(engine);
+  return end - start;
 #endif
 }

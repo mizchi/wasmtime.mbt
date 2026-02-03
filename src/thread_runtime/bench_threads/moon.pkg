@@ -1,0 +1,16 @@
+import {
+  "mizchi/wasmtime" as @wasmtime,
+  "mizchi/wasmtime/thread_runtime" as @thread_runtime,
+  "moonbitlang/core/env" as @env,
+  "moonbitlang/core/strconv" as @strconv,
+  "moonbitlang/core/encoding/utf8" as @utf8,
+}
+
+options(
+  "is-main": true,
+  link: {
+    "native": {
+      "cc-link-flags": "-Ldeps/wasmtime/target/release -lwasmtime -pthread",
+    },
+  },
+)
