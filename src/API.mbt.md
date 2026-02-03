@@ -4,8 +4,11 @@
 
 Get the Wasmtime version string from the native library.
 
-```mbt test
-inspect(version().length() > 0, content="true")
+```mbt check
+///|
+test {
+  inspect(version().length() > 0, content="true")
+}
 ```
 
 ## engine_new / engine_delete
