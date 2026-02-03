@@ -340,49 +340,51 @@ fn run_repeat(
 fn main {
   let opts = parse_args()
   guard opts is Some(options) else { return }
-  let result =
-    @wasm_artifacts.from_wasm_bytes(options.wasm_path)
-    .bind(wasm => {
-      @thread_runtime.ThreadRuntime::new(1).bind(rt => {
-        let precompiled =
-          if options.use_cwasm {
-            rt.precompile_cwasm(wasm).bind(cwasm => {
-              cwasm_output_path(options.wasm_path).bind(path => {
-                @fs.write_bytes_to_file(path, cwasm) catch { err => return Err(err) }
-                Ok(cwasm)
+  let result : Result[UInt64, Error] =
+    match (try? @fs.read_file_to_bytes(options.wasm_path)) {
+      Ok(wasm) => {
+        @thread_runtime.ThreadRuntime::new(1).bind(rt => {
+          let precompiled =
+            if options.use_cwasm {
+              rt.precompile_cwasm(wasm).bind(cwasm => {
+                cwasm_output_path(options.wasm_path).bind(path => {
+                  @fs.write_bytes_to_file(path, cwasm) catch { err => return Err(err) }
+                  Ok(cwasm)
+                })
               })
-            })
-          } else {
-            Ok(wasm)
-          }
-        let outcome =
-          precompiled.bind(payload => {
-            build_worklist(options.host_dir, options.file_limit)
-            .bind(_ =>
-              if options.inherit_stdio {
-                rt.wasi_inherit_stdio()
-              } else {
-                Ok(())
-              }
-            )
-            .bind(_ => rt.wasi_preopen_dir(options.host_dir))
-            .bind(_ =>
-              run_repeat(
-                rt,
-                payload,
-                options.entry,
-                options.threads,
-                options.repeat,
-                options.warmup,
-                options.inner_repeat,
-                options.use_cwasm,
+            } else {
+              Ok(wasm)
+            }
+          let outcome =
+            precompiled.bind(payload => {
+              build_worklist(options.host_dir, options.file_limit)
+              .bind(_ =>
+                if options.inherit_stdio {
+                  rt.wasi_inherit_stdio()
+                } else {
+                  Ok(())
+                }
               )
-            )
-          })
-        rt.delete()
-        outcome
-      })
-    })
+              .bind(_ => rt.wasi_preopen_dir(options.host_dir))
+              .bind(_ =>
+                run_repeat(
+                  rt,
+                  payload,
+                  options.entry,
+                  options.threads,
+                  options.repeat,
+                  options.warmup,
+                  options.inner_repeat,
+                  options.use_cwasm,
+                )
+              )
+            })
+          rt.delete()
+          outcome
+        })
+      }
+      Err(err) => Err(err)
+    }
   match result {
     Ok(total_ns) => {
       let batch_den = Int::to_uint64(options.repeat)

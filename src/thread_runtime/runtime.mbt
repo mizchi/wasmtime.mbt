@@ -11,6 +11,26 @@ pub struct ThreadHandle {
 }
 
 ///|
+/// WASI directory permission flags.
+pub type WasiDirPerms = Int
+
+///|
+/// WASI file permission flags.
+pub type WasiFilePerms = Int
+
+///|
+pub const WASI_DIR_PERMS_READ : WasiDirPerms = 1
+
+///|
+pub const WASI_DIR_PERMS_WRITE : WasiDirPerms = 2
+
+///|
+pub const WASI_FILE_PERMS_READ : WasiFilePerms = 1
+
+///|
+pub const WASI_FILE_PERMS_WRITE : WasiFilePerms = 2
+
+///|
 /// Native: create a thread runtime with shared memory pages.
 #borrow(error_out)
 extern "C" fn thread_runtime_new_native(
@@ -425,8 +445,8 @@ pub fn thread_runtime_wasi_preopen_dir(
   rt : ThreadRuntime,
   host_path : String,
   guest_path? : String = ".",
-  dir_perms? : @wasi.WasiDirPerms = @wasi.WASI_DIR_PERMS_READ,
-  file_perms? : @wasi.WasiFilePerms = @wasi.WASI_FILE_PERMS_READ,
+  dir_perms? : WasiDirPerms = WASI_DIR_PERMS_READ,
+  file_perms? : WasiFilePerms = WASI_FILE_PERMS_READ,
 ) -> Result[Unit, Error] {
   let err_ptr = @wasmtime.make_ptr_buffer()
   let host_bytes = @utf8.encode(host_path)
