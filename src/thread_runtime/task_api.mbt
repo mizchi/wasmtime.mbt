@@ -77,8 +77,8 @@ pub fn ThreadRuntime::wasi_preopen_dir(
   self : ThreadRuntime,
   host_path : String,
   guest_path? : String = ".",
-  dir_perms? : @wasi.WasiDirPerms = @wasi.WASI_DIR_PERMS_READ,
-  file_perms? : @wasi.WasiFilePerms = @wasi.WASI_FILE_PERMS_READ,
+  dir_perms? : WasiDirPerms = WASI_DIR_PERMS_READ,
+  file_perms? : WasiFilePerms = WASI_FILE_PERMS_READ,
 ) -> Result[Unit, Error] {
   thread_runtime_wasi_preopen_dir(
     self,
