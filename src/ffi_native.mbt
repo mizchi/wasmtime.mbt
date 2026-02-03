@@ -493,6 +493,10 @@ pub extern "C" fn ptr_is_null(bytes : Bytes) -> Bool = "moonbit_ptr_is_null"
 pub extern "C" fn ptr_clear(bytes : Bytes) -> Unit = "moonbit_ptr_clear"
 
 ///|
+/// Current monotonic time in nanoseconds.
+pub extern "C" fn clock_now_ns() -> UInt64 = "moonbit_clock_now_ns"
+
+///|
 /// Delete a Wasmtime error pointer stored in bytes.
 #borrow(bytes)
 pub extern "C" fn error_delete_ptr(bytes : Bytes) -> Unit = "wasmtime_error_delete_ptr"
