@@ -27,19 +27,16 @@ test "wasi_sync_call_stdin" {
     stdin_path="src/testdata/wasm_job_input.txt",
   )
   let module_val = @wasmtime.module_new_from_wat_or_raise(engine, wat)
-  let instance = @wasmtime.linker_instantiate_or_raise(linker, context, module_val)
+  let instance = @wasmtime.linker_instantiate_or_raise(
+    linker, context, module_val,
+  )
   let func = @wasmtime.instance_export_func_or_raise(context, instance, "run")
   let args = @wasmtime.make_val_buffer(0)
   let results = @wasmtime.make_val_buffer(1)
   let trap_ptr = @wasmtime.make_ptr_buffer()
   let err_ptr = @wasmtime.make_ptr_buffer()
   let call_res = @wasmtime.func_call_sync_result_autoclean(
-    context,
-    func,
-    args,
-    results,
-    trap_ptr,
-    err_ptr,
+    context, func, args, results, trap_ptr, err_ptr,
   )
   match call_res {
     Ok(_) => {
@@ -107,19 +104,16 @@ test "wasi_sync_call_preopen_file" {
     file_perms=WASI_FILE_PERMS_READ,
   )
   let module_val = @wasmtime.module_new_from_wat_or_raise(engine, wat)
-  let instance = @wasmtime.linker_instantiate_or_raise(linker, context, module_val)
+  let instance = @wasmtime.linker_instantiate_or_raise(
+    linker, context, module_val,
+  )
   let func = @wasmtime.instance_export_func_or_raise(context, instance, "run")
   let args = @wasmtime.make_val_buffer(0)
   let results = @wasmtime.make_val_buffer(1)
   let trap_ptr = @wasmtime.make_ptr_buffer()
   let err_ptr = @wasmtime.make_ptr_buffer()
   let call_res = @wasmtime.func_call_sync_result_autoclean(
-    context,
-    func,
-    args,
-    results,
-    trap_ptr,
-    err_ptr,
+    context, func, args, results, trap_ptr, err_ptr,
   )
   match call_res {
     Ok(_) => {
@@ -175,23 +169,20 @@ test "wasi_sync_call_stdout_stderr_files" {
   let engine = @wasmtime.engine_new()
   let (store, context, linker) = wasi_context_linker_with_stdio_files_or_raise(
     engine,
-    stdout_path=stdout_path,
-    stderr_path=stderr_path,
+    stdout_path~,
+    stderr_path~,
   )
   let module_val = @wasmtime.module_new_from_wat_or_raise(engine, wat)
-  let instance = @wasmtime.linker_instantiate_or_raise(linker, context, module_val)
+  let instance = @wasmtime.linker_instantiate_or_raise(
+    linker, context, module_val,
+  )
   let func = @wasmtime.instance_export_func_or_raise(context, instance, "run")
   let args = @wasmtime.make_val_buffer(0)
   let results = @wasmtime.make_val_buffer(1)
   let trap_ptr = @wasmtime.make_ptr_buffer()
   let err_ptr = @wasmtime.make_ptr_buffer()
   let call_res = @wasmtime.func_call_sync_result_autoclean(
-    context,
-    func,
-    args,
-    results,
-    trap_ptr,
-    err_ptr,
+    context, func, args, results, trap_ptr, err_ptr,
   )
   match call_res {
     Ok(_) => {

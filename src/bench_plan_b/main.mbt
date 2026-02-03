@@ -16,74 +16,66 @@ fn bench_time(label : String, iters : Int, f : () -> Bool) -> Bool {
   }
   let end = @wasmtime.clock_now_ns()
   let elapsed = end - start
-  let per =
-    if iters > 0 {
-      elapsed / Int::to_uint64(iters)
-    } else {
-      0
-    }
+  let per = if iters > 0 { elapsed / Int::to_uint64(iters) } else { 0 }
   println("\{label}: total=\{elapsed} ticks, per=\{per} ticks")
   true
 }
 
 ///|
-fn sync_wasi_call_result(engine : @wasmtime.Engine, wat : String) -> Result[Int, Error] {
-  let (store, context, linker) =
-    try @wasi.wasi_context_linker_with_preopen_or_raise(
+fn sync_wasi_call_result(
+  engine : @wasmtime.Engine,
+  wat : String,
+) -> Result[Int, Error] {
+  let (store, context, linker) = try
+    @wasi.wasi_context_linker_with_preopen_or_raise(
       engine,
       "src/testdata",
       guest_path=".",
-    ) catch {
-      err => return Err(err)
-    } noraise {
-      value => value
+    )
+  catch {
+    err => return Err(err)
+  } noraise {
+    value => value
+  }
+  let module_val = match @wasmtime.module_new_from_wat_result(engine, wat) {
+    Ok(val) => val
+    Err(err) => {
+      @wasmtime.linker_delete(linker)
+      @wasmtime.wasmtime_store_delete(store)
+      return Err(err)
     }
-  let module_val =
-    match @wasmtime.module_new_from_wat_result(engine, wat) {
-      Ok(val) => val
-      Err(err) => {
-        @wasmtime.linker_delete(linker)
-        @wasmtime.wasmtime_store_delete(store)
-        return Err(err)
-      }
+  }
+  let instance = match
+    @wasmtime.linker_instantiate_result(linker, context, module_val) {
+    Ok(inst) => inst
+    Err(err) => {
+      @wasmtime.module_delete(module_val)
+      @wasmtime.linker_delete(linker)
+      @wasmtime.wasmtime_store_delete(store)
+      return Err(err)
     }
-  let instance =
-    match @wasmtime.linker_instantiate_result(linker, context, module_val) {
-      Ok(inst) => inst
-      Err(err) => {
-        @wasmtime.module_delete(module_val)
-        @wasmtime.linker_delete(linker)
-        @wasmtime.wasmtime_store_delete(store)
-        return Err(err)
-      }
+  }
+  let func = match
+    @wasmtime.instance_export_func_result(context, instance, "run") {
+    Ok(func_val) => func_val
+    Err(err) => {
+      @wasmtime.module_delete(module_val)
+      @wasmtime.linker_delete(linker)
+      @wasmtime.wasmtime_store_delete(store)
+      return Err(err)
     }
-  let func =
-    match @wasmtime.instance_export_func_result(context, instance, "run") {
-      Ok(func_val) => func_val
-      Err(err) => {
-        @wasmtime.module_delete(module_val)
-        @wasmtime.linker_delete(linker)
-        @wasmtime.wasmtime_store_delete(store)
-        return Err(err)
-      }
-    }
+  }
   let args = @wasmtime.make_val_buffer(0)
   let results = @wasmtime.make_val_buffer(1)
   let trap_ptr = @wasmtime.make_ptr_buffer()
   let err_ptr = @wasmtime.make_ptr_buffer()
   let call_res = @wasmtime.func_call_sync_result_autoclean(
-    context,
-    func,
-    args,
-    results,
-    trap_ptr,
-    err_ptr,
+    context, func, args, results, trap_ptr, err_ptr,
   )
-  let result =
-    match call_res {
-      Ok(_) => Ok(@wasmtime.val_buffer_get_i32(results, 0))
-      Err(err) => Err(err)
-    }
+  let result = match call_res {
+    Ok(_) => Ok(@wasmtime.val_buffer_get_i32(results, 0))
+    Err(err) => Err(err)
+  }
   @wasmtime.module_delete(module_val)
   @wasmtime.linker_delete(linker)
   @wasmtime.wasmtime_store_delete(store)
@@ -95,51 +87,46 @@ fn sync_wasi_call_reuse_module_result(
   engine : @wasmtime.Engine,
   module_val : @wasmtime.Module,
 ) -> Result[Int, Error] {
-  let (store, context, linker) =
-    try @wasi.wasi_context_linker_with_preopen_or_raise(
+  let (store, context, linker) = try
+    @wasi.wasi_context_linker_with_preopen_or_raise(
       engine,
       "src/testdata",
       guest_path=".",
-    ) catch {
-      err => return Err(err)
-    } noraise {
-      value => value
+    )
+  catch {
+    err => return Err(err)
+  } noraise {
+    value => value
+  }
+  let instance = match
+    @wasmtime.linker_instantiate_result(linker, context, module_val) {
+    Ok(inst) => inst
+    Err(err) => {
+      @wasmtime.linker_delete(linker)
+      @wasmtime.wasmtime_store_delete(store)
+      return Err(err)
     }
-  let instance =
-    match @wasmtime.linker_instantiate_result(linker, context, module_val) {
-      Ok(inst) => inst
-      Err(err) => {
-        @wasmtime.linker_delete(linker)
-        @wasmtime.wasmtime_store_delete(store)
-        return Err(err)
-      }
+  }
+  let func = match
+    @wasmtime.instance_export_func_result(context, instance, "run") {
+    Ok(func_val) => func_val
+    Err(err) => {
+      @wasmtime.linker_delete(linker)
+      @wasmtime.wasmtime_store_delete(store)
+      return Err(err)
     }
-  let func =
-    match @wasmtime.instance_export_func_result(context, instance, "run") {
-      Ok(func_val) => func_val
-      Err(err) => {
-        @wasmtime.linker_delete(linker)
-        @wasmtime.wasmtime_store_delete(store)
-        return Err(err)
-      }
-    }
+  }
   let args = @wasmtime.make_val_buffer(0)
   let results = @wasmtime.make_val_buffer(1)
   let trap_ptr = @wasmtime.make_ptr_buffer()
   let err_ptr = @wasmtime.make_ptr_buffer()
   let call_res = @wasmtime.func_call_sync_result_autoclean(
-    context,
-    func,
-    args,
-    results,
-    trap_ptr,
-    err_ptr,
+    context, func, args, results, trap_ptr, err_ptr,
   )
-  let result =
-    match call_res {
-      Ok(_) => Ok(@wasmtime.val_buffer_get_i32(results, 0))
-      Err(err) => Err(err)
-    }
+  let result = match call_res {
+    Ok(_) => Ok(@wasmtime.val_buffer_get_i32(results, 0))
+    Err(err) => Err(err)
+  }
   @wasmtime.linker_delete(linker)
   @wasmtime.wasmtime_store_delete(store)
   result
@@ -190,13 +177,12 @@ fn bench_sync_wasi_full(iters : Int) -> Bool {
     #|    i32.const 4
     #|    i32.load))
   let engine = @wasmtime.engine_new()
-  let ok = bench_time("sync_wasi_full", iters, () => {
-    match sync_wasi_call_result(engine, wat) {
-      Ok(result) => result == 5
-      Err(err) => {
-        println(err)
-        false
-      }
+  let ok = bench_time("sync_wasi_full", iters, () => match
+    sync_wasi_call_result(engine, wat) {
+    Ok(result) => result == 5
+    Err(err) => {
+      println(err)
+      false
     }
   })
   @wasmtime.engine_delete(engine)
@@ -251,13 +237,12 @@ fn bench_sync_wasi_reuse_module(iters : Int) -> Bool {
   let module_res = @wasmtime.module_new_from_wat_result(engine, wat)
   match module_res {
     Ok(module_val) => {
-      let ok = bench_time("sync_wasi_reuse_module", iters, () => {
-        match sync_wasi_call_reuse_module_result(engine, module_val) {
-          Ok(result) => result == 5
-          Err(err) => {
-            println(err)
-            false
-          }
+      let ok = bench_time("sync_wasi_reuse_module", iters, () => match
+        sync_wasi_call_reuse_module_result(engine, module_val) {
+        Ok(result) => result == 5
+        Err(err) => {
+          println(err)
+          false
         }
       })
       @wasmtime.module_delete(module_val)
@@ -279,4 +264,5 @@ fn main {
     return
   }
   let _ = bench_sync_wasi_reuse_module(50)
+
 }

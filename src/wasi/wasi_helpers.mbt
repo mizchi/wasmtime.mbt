@@ -2,22 +2,36 @@
 /// WASI directory permission flags.
 pub type WasiDirPerms = Int
 
+///|
 pub const WASI_DIR_PERMS_READ : WasiDirPerms = 1
+
+///|
 pub const WASI_DIR_PERMS_WRITE : WasiDirPerms = 2
 
 ///|
 /// WASI file permission flags.
 pub type WasiFilePerms = Int
 
+///|
 pub const WASI_FILE_PERMS_READ : WasiFilePerms = 1
+
+///|
 pub const WASI_FILE_PERMS_WRITE : WasiFilePerms = 2
 
 ///|
 /// Re-export core types for convenience.
 pub type WasiConfig = @wasmtime.WasiConfig
+
+///|
 pub type Engine = @wasmtime.Engine
+
+///|
 pub type Context = @wasmtime.Context
+
+///|
 pub type Linker = @wasmtime.Linker
+
+///|
 pub type WasmtimeStore = @wasmtime.WasmtimeStore
 
 ///|
@@ -34,7 +48,9 @@ pub fn wasi_config_set_stdin_file_or_raise(
   path : String,
 ) -> Unit raise {
   let bytes = @utf8.encode(path)
-  if not(@wasmtime.wasi_config_set_stdin_file_bytes(config, bytes, bytes.length())) {
+  if not(
+      @wasmtime.wasi_config_set_stdin_file_bytes(config, bytes, bytes.length()),
+    ) {
     fail("wasi_config_set_stdin_file failed")
   }
 }
@@ -46,7 +62,9 @@ pub fn wasi_config_set_stdout_file_or_raise(
   path : String,
 ) -> Unit raise {
   let bytes = @utf8.encode(path)
-  if not(@wasmtime.wasi_config_set_stdout_file_bytes(config, bytes, bytes.length())) {
+  if not(
+      @wasmtime.wasi_config_set_stdout_file_bytes(config, bytes, bytes.length()),
+    ) {
     fail("wasi_config_set_stdout_file failed")
   }
 }
@@ -58,7 +76,9 @@ pub fn wasi_config_set_stderr_file_or_raise(
   path : String,
 ) -> Unit raise {
   let bytes = @utf8.encode(path)
-  if not(@wasmtime.wasi_config_set_stderr_file_bytes(config, bytes, bytes.length())) {
+  if not(
+      @wasmtime.wasi_config_set_stderr_file_bytes(config, bytes, bytes.length()),
+    ) {
     fail("wasi_config_set_stderr_file failed")
   }
 }
@@ -82,15 +102,17 @@ pub fn wasi_config_preopen_dir_or_raise(
 ) -> Unit raise {
   let host_bytes = @utf8.encode(host_path)
   let guest_bytes = @utf8.encode(guest_path)
-  if not(@wasmtime.wasi_config_preopen_dir_bytes(
-    config,
-    host_bytes,
-    host_bytes.length(),
-    guest_bytes,
-    guest_bytes.length(),
-    dir_perms,
-    file_perms,
-  )) {
+  if not(
+      @wasmtime.wasi_config_preopen_dir_bytes(
+        config,
+        host_bytes,
+        host_bytes.length(),
+        guest_bytes,
+        guest_bytes.length(),
+        dir_perms,
+        file_perms,
+      ),
+    ) {
     fail("wasi_config_preopen_dir failed")
   }
 }
@@ -166,9 +188,9 @@ pub fn wasi_context_linker_with_preopen_or_raise(
   wasi_config_preopen_dir_or_raise(
     wasi,
     host_path,
-    guest_path=guest_path,
-    dir_perms=dir_perms,
-    file_perms=file_perms,
+    guest_path~,
+    dir_perms~,
+    file_perms~,
   )
   wasi_context_linker_new_or_raise(engine, wasi)
 }

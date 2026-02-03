@@ -5,10 +5,10 @@ import {
 }
 
 options(
-  "supported-targets": [ "native" ],
   link: {
     "native": {
-      "cc-link-flags": "-Ldeps/wasmtime/target/release -lwasmtime -pthread"
-    }
+      "cc-link-flags": "-Ldeps/wasmtime/target/release -lwasmtime -pthread",
+    },
   },
+  "supported-targets": [ "native" ],
 )
