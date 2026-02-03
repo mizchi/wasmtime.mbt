@@ -341,8 +341,10 @@ fn main {
   let opts = parse_args()
   guard opts is Some(options) else { return }
   let result : Result[UInt64, Error] =
-    match (try? @fs.read_file_to_bytes(options.wasm_path)) {
-      Ok(wasm) => {
+    try @fs.read_file_to_bytes(options.wasm_path) catch {
+      err => Err(err)
+    } noraise {
+      wasm => {
         @thread_runtime.ThreadRuntime::new(1).bind(rt => {
           let precompiled =
             if options.use_cwasm {
@@ -383,7 +385,6 @@ fn main {
           outcome
         })
       }
-      Err(err) => Err(err)
     }
   match result {
     Ok(total_ns) => {
