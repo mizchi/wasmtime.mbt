@@ -1,0 +1,11 @@
+import {
+  "mizchi/wasmtime" as @wasmtime,
+  "mizchi/wasmtime/wasm_artifacts" as @wasm_artifacts,
+}
+
+options(
+  "is-main": true,
+  link: {
+    "native": { "cc-link-flags": "-Ldeps/wasmtime/target/release -lwasmtime" },
+  },
+)

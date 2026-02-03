@@ -1,0 +1,45 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/wasmtime/wasm_artifacts"
+
+// Values
+pub fn artifact_bytes_from_module_result(String, module_name? : String, target? : WasmTarget, profile? : BuildProfile) -> Result[Bytes, Error]
+
+pub fn artifact_path_for_package(String, target? : WasmTarget, profile? : BuildProfile) -> String
+
+pub fn artifact_path_from_module(String, module_name? : String, target? : WasmTarget, profile? : BuildProfile) -> String
+
+pub fn build_profile_variants() -> Array[BuildProfile]
+
+pub fn bytes_from_moonbit_module(String, module_name? : String, target? : WasmTarget, profile? : BuildProfile, root? : String) -> Result[Bytes, Error]
+
+pub fn from_moonbit_module(String, module_name? : String, target? : WasmTarget, profile? : BuildProfile, root? : String) -> String
+
+pub fn from_wasm_bytes(String) -> Result[Bytes, Error]
+
+pub fn package_name(String) -> String
+
+pub fn package_path_from_module(String, module_name? : String) -> String
+
+pub fn wasm_target_variants() -> Array[WasmTarget]
+
+pub fn workspace_root_from_cwd() -> String?
+
+pub fn workspace_root_from_path(String) -> String
+
+// Errors
+
+// Types and methods
+pub(all) enum BuildProfile {
+  Debug
+  Release
+}
+
+pub(all) enum WasmTarget {
+  Wasm
+  WasmGc
+}
+
+// Type aliases
+
+// Traits
+

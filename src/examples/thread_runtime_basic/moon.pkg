@@ -2,8 +2,6 @@ import {
   "mizchi/wasmtime" as @wasmtime,
   "mizchi/wasmtime/thread_runtime" as @thread_runtime,
   "mizchi/wasmtime/wasm_threads_patterns" as @wasm_threads_patterns,
-  "moonbitlang/core/env" as @env,
-  "moonbitlang/core/strconv" as @strconv,
 }
 
 options(

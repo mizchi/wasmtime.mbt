@@ -1,0 +1,8 @@
+options(
+  "is-main": true,
+  "supported-targets": [ "wasm", "wasm-gc" ],
+  link: {
+    "wasm": { "exports": [ "run" ] },
+    "wasm-gc": { "exports": [ "run" ] },
+  },
+)

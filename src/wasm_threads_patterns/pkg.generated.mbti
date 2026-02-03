@@ -1,0 +1,36 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/wasmtime/wasm_threads_patterns"
+
+// Values
+pub fn wat_atomic_counter(UInt64) -> String
+
+pub fn wat_barrier(UInt64) -> String
+
+pub fn wat_broadcast(UInt64) -> String
+
+pub fn wat_fan_in(UInt64) -> String
+
+pub fn wat_map_reduce(UInt64) -> String
+
+pub fn wat_ping_pong(UInt64) -> String
+
+pub fn wat_reduce(UInt64) -> String
+
+pub fn wat_ring_queue(UInt64) -> String
+
+pub fn wat_ring_queue_mpmc(UInt64) -> String
+
+pub fn wat_slots(UInt64) -> String
+
+pub fn wat_work_queue(UInt64) -> String
+
+pub fn wat_work_steal(UInt64) -> String
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+

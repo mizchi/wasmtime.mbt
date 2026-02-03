@@ -51,30 +51,42 @@ to model OTP-like restart behavior on the host side.
 Example (supervisor + WAT child):
 
 ```moonbit
-let rt = try! thread_runtime_new(1) // 1 page shared mem
-let spec = supervisor_spec(
-  strategy=RestartStrategy::OneForOne,
-  max_restarts=3,
-  backoff_iters=1000,
-  poll_iters=1000,
-  poll_backoff_iters=100,
-)
-let child = child_wat(
-  "worker",
-  wat,
-  "run",
-  args,
-  restart=RestartPolicy::Transient,
-)
-let result = try! supervisor_run(rt, spec, [child])
-match result {
-  SupervisorResult::Timeout(_, pending) => {
-    // Either keep polling, or drop handles.
-    for item in pending {
-      let _ = thread_runtime_detach(item.handle)
+fn main {
+  let rt = match thread_runtime_new(1) { // 1 page shared mem
+    Ok(rt) => rt
+    Err(err) => {
+      println("thread_runtime_new failed: \{err}")
+      return
     }
   }
-  _ => ()
+  let spec = supervisor_spec(
+    strategy=RestartStrategy::OneForOne,
+    max_restarts=3,
+    backoff_iters=1000,
+    poll_iters=1000,
+    poll_backoff_iters=100,
+  )
+  let child = child_wat(
+    "worker",
+    wat,
+    "run",
+    args,
+    restart=RestartPolicy::Transient,
+  )
+  match supervisor_run(rt, spec, [child]) {
+    Ok(result) => {
+      match result {
+        SupervisorResult::Timeout(_, pending) => {
+          // Either keep polling, or drop handles.
+          for item in pending {
+            let _ = thread_runtime_detach(item.handle)
+          }
+        }
+        _ => ()
+      }
+    }
+    Err(err) => println("supervisor_run failed: \{err}")
+  }
 }
 ```
 

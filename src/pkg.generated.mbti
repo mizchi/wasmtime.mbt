@@ -216,6 +216,12 @@ pub fn instance_sizeof() -> Int
 
 pub fn linker_define_async_func_ptr(Linker, Bytes, Int, Bytes, Int, FuncType, UInt64, UInt64, UInt64) -> WasmtimeError
 
+pub fn linker_define_spectest_print_char(Linker, Context, Bytes) -> Bool
+
+pub fn linker_define_spectest_print_char_or_raise(Linker, Context) -> Unit raise
+
+pub fn linker_define_spectest_print_char_result(Linker, Context) -> Result[Unit, Error]
+
 pub fn linker_define_wasi(Linker) -> WasmtimeError
 
 pub fn linker_define_wasi_or_raise(Linker) -> Unit raise
@@ -273,6 +279,10 @@ pub fn ptr_read_u64(Bytes) -> UInt64
 pub fn ptr_sizeof() -> Int
 
 pub fn read_file_bytes(Bytes, Int, Bytes) -> Bytes
+
+pub fn spectest_capture_bytes() -> Bytes
+
+pub fn spectest_capture_reset() -> Unit
 
 pub fn stack_creator_sizeof() -> Int
 

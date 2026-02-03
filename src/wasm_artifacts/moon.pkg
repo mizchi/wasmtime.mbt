@@ -1,0 +1,4 @@
+import {
+  "mizchi/wasmtime/wasi" as @wasi,
+  "moonbitlang/core/env" as @env,
+}

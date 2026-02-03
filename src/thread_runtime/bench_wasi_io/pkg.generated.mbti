@@ -1,0 +1,14 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/wasmtime/thread_runtime/bench_wasi_io"
+
+// Values
+
+// Errors
+
+// Types and methods
+type Options
+
+// Type aliases
+
+// Traits
+

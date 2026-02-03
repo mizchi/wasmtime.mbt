@@ -1,0 +1,20 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/wasmtime/thread_runtime/bench_threads"
+
+// Values
+pub fn bench_os_shared_payload(Int, Int, Int, Bytes, Bytes, Bytes) -> UInt64
+
+pub fn bench_os_shared_payload_warm(Int, Int, Int, Bytes, Bytes, Bytes) -> UInt64
+
+pub fn bench_os_shared_ring(Int, Int, Bytes, Bytes, Bytes) -> UInt64
+
+pub fn bench_os_shared_ring_warm(Int, Int, Bytes, Bytes, Bytes) -> UInt64
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+

@@ -1,0 +1,64 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/wasmtime/thread_supervisor_core"
+
+// Values
+pub fn[H] child_spec(String, () -> Result[H, Error], restart? : RestartPolicy) -> ChildSpec[H]
+
+pub fn restart_policy_variants() -> Array[RestartPolicy]
+
+pub fn restart_strategy_variants() -> Array[RestartStrategy]
+
+pub fn[H] supervisor_run(SupervisorSpec, Array[ChildSpec[H]], (H) -> Result[Unit, Error], (H) -> Result[Bool, Error]) -> Result[SupervisorResult[H], Error]
+
+pub fn supervisor_spec(strategy? : RestartStrategy, max_restarts? : Int, backoff_iters? : Int, poll_iters? : Int, poll_backoff_iters? : Int) -> SupervisorSpec
+
+// Errors
+
+// Types and methods
+pub struct ChildSpec[H] {
+  id : String
+  start : () -> Result[H, Error]
+  restart : RestartPolicy
+}
+
+pub enum ExitReason {
+  Normal
+  Trap(Error)
+  Timeout
+}
+
+pub struct PendingHandle[H] {
+  id : String
+  handle : H
+}
+
+pub(all) enum RestartPolicy {
+  Permanent
+  Transient
+  Temporary
+}
+
+pub(all) enum RestartStrategy {
+  OneForOne
+  OneForAll
+  RestForOne
+}
+
+pub enum SupervisorResult[H] {
+  Completed(Int)
+  RestartLimit(String, Int, ExitReason)
+  Timeout(Int, Array[PendingHandle[H]])
+}
+
+pub struct SupervisorSpec {
+  strategy : RestartStrategy
+  max_restarts : Int
+  backoff_iters : Int
+  poll_iters : Int
+  poll_backoff_iters : Int
+}
+
+// Type aliases
+
+// Traits
+

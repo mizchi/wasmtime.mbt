@@ -1,13 +1,3 @@
-///|
-fn read_u32_le(bytes : Bytes, offset : Int) -> UInt64 {
-  let b0 = bytes[offset].to_uint64()
-  let b1 = bytes[offset + 1].to_uint64()
-  let b2 = bytes[offset + 2].to_uint64()
-  let b3 = bytes[offset + 3].to_uint64()
-  b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
-}
-
-///|
 fn make_i32_args(value : Int) -> Bytes {
   let args = @wasmtime.make_val_buffer(1)
   @wasmtime.val_buffer_set_i32(args, 0, value)
@@ -203,7 +193,7 @@ fn run_ok_example(rt : @thread_runtime.ThreadRuntime) -> Unit {
   }
   match @thread_runtime.thread_runtime_mem_read(rt, 0, 4) {
     Ok(bytes) => {
-      let count = read_u32_le(bytes, 0)
+      let count = @thread_runtime.read_u32_le(bytes, 0)
       println("counter done: \{count}")
     }
     Err(err) => println("mem read failed: \{err}")

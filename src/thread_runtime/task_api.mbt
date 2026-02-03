@@ -188,14 +188,13 @@ pub fn JoinSet::try_join_next(self : JoinSet) -> Result[Bool, Error] {
   let len = self.handles.length()
   for i in 0..<len {
     let handle = self.handles[i]
-    match handle.try_join() {
-      Ok(done) => {
-        if done {
-          let _ = self.handles.remove(i)
-          return Ok(true)
-        }
-      }
-      Err(err) => return Err(err)
+    let join_result = handle.try_join()
+    guard join_result is Ok(done) else {
+      return Err(join_result.unwrap_err())
+    }
+    if done {
+      let _ = self.handles.remove(i)
+      return Ok(true)
     }
   }
   Ok(false)

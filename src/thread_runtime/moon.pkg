@@ -1,5 +1,7 @@
 import {
   "mizchi/wasmtime" as @wasmtime,
+  "mizchi/wasmtime/wasi" as @wasi,
+  "mizchi/wasmtime/thread_supervisor_core" as @thread_supervisor_core,
   "moonbitlang/core/builtin" as @builtin,
   "moonbitlang/core/encoding/utf8" as @utf8,
 }

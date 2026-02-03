@@ -1,0 +1,15 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/wasmtime/examples/thread_patterns"
+
+// Values
+
+// Errors
+type ExampleError
+
+// Types and methods
+type ExampleMode
+
+// Type aliases
+
+// Traits
+
