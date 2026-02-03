@@ -13,7 +13,10 @@ pub fn config_target_set(config : Config, target : String) -> WasmtimeError {
 
 ///|
 /// Load a cache config. Returns null on success.
-pub fn config_cache_config_load(config : Config, path : String) -> WasmtimeError {
+pub fn config_cache_config_load(
+  config : Config,
+  path : String,
+) -> WasmtimeError {
   let bytes = @utf8.encode(path)
   config_cache_config_load_bytes(config, bytes, bytes.length())
 }
@@ -34,7 +37,11 @@ pub fn config_cranelift_flag_enable(config : Config, flag : String) -> Unit {
 
 ///|
 /// Set a Cranelift flag by name to a value.
-pub fn config_cranelift_flag_set(config : Config, key : String, value : String) -> Unit {
+pub fn config_cranelift_flag_set(
+  config : Config,
+  key : String,
+  value : String,
+) -> Unit {
   let key_bytes = @utf8.encode(key)
   let value_bytes = @utf8.encode(value)
   config_cranelift_flag_set_bytes(

@@ -1,6 +1,8 @@
 ///|
 /// Create engine/store/context for async execution.
-pub fn async_context_new(async_stack_size : UInt64) -> (Engine, WasmtimeStore, Context) {
+pub fn async_context_new(
+  async_stack_size : UInt64,
+) -> (Engine, WasmtimeStore, Context) {
   let config = config_new()
   config_async_stack_size_set(config, async_stack_size)
   let engine = engine_new_with_config(config)
@@ -29,14 +31,7 @@ pub fn func_call_async(
   let nargs = val_buffer_count_or_raise(args)
   let nresults = val_buffer_count_or_raise(results)
   func_call_async_bytes(
-    context,
-    func_bytes,
-    args,
-    nargs,
-    results,
-    nresults,
-    trap_ptr,
-    err_ptr,
+    context, func_bytes, args, nargs, results, nresults, trap_ptr, err_ptr,
   )
 }
 
@@ -55,23 +50,18 @@ pub fn func_call_async_result(
   match (nargs, nresults) {
     (Ok(nargs_val), Ok(nresults_val)) => {
       let future = func_call_async_bytes(
-        context,
-        func_bytes,
-        args,
-        nargs_val,
-        results,
-        nresults_val,
-        trap_ptr,
-        err_ptr,
+        context, func_bytes, args, nargs_val, results, nresults_val, trap_ptr, err_ptr,
       )
       if ptr_buffer_is_null(err_ptr) && ptr_buffer_is_null(trap_ptr) {
         Ok(future)
       } else {
         let err_present = not(ptr_buffer_is_null(err_ptr))
         let trap_present = not(ptr_buffer_is_null(trap_ptr))
-        Err(@builtin.Failure::Failure(
-          "func_call_async failed (error=\{err_present}, trap=\{trap_present})",
-        ))
+        Err(
+          @builtin.Failure::Failure(
+            "func_call_async failed (error=\{err_present}, trap=\{trap_present})",
+          ),
+        )
       }
     }
     (Ok(_), Err(err)) => Err(err)
@@ -90,12 +80,7 @@ pub fn func_call_async_result_autoclean(
   err_ptr : Bytes,
 ) -> Result[CallFuture, Error] {
   let res = func_call_async_result(
-    context,
-    func_bytes,
-    args,
-    results,
-    trap_ptr,
-    err_ptr,
+    context, func_bytes, args, results, trap_ptr, err_ptr,
   )
   match res {
     Ok(future) => {

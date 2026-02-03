@@ -199,47 +199,74 @@ pub extern "C" fn config_debug_info_set(config : Config, enable : Bool) -> Unit 
 ///|
 /// Enable/disable fuel consumption.
 #borrow(config)
-pub extern "C" fn config_consume_fuel_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_consume_fuel_set"
+pub extern "C" fn config_consume_fuel_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_consume_fuel_set"
 
 ///|
 /// Enable/disable epoch interruption.
 #borrow(config)
-pub extern "C" fn config_epoch_interruption_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_epoch_interruption_set"
+pub extern "C" fn config_epoch_interruption_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_epoch_interruption_set"
 
 ///|
 /// Configure max wasm stack size in bytes.
 #borrow(config)
-pub extern "C" fn config_max_wasm_stack_set(config : Config, bytes : UInt64) -> Unit = "wasmtime_config_max_wasm_stack_set"
+pub extern "C" fn config_max_wasm_stack_set(
+  config : Config,
+  bytes : UInt64,
+) -> Unit = "wasmtime_config_max_wasm_stack_set"
 
 ///|
 /// Configure async stack size in bytes.
 #borrow(config)
-pub extern "C" fn config_async_stack_size_set(config : Config, bytes : UInt64) -> Unit = "wasmtime_config_async_stack_size_set"
+pub extern "C" fn config_async_stack_size_set(
+  config : Config,
+  bytes : UInt64,
+) -> Unit = "wasmtime_config_async_stack_size_set"
 
 ///|
 /// Enable/disable wasm threads.
 #borrow(config)
-pub extern "C" fn config_wasm_threads_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_threads_set"
+pub extern "C" fn config_wasm_threads_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_threads_set"
 
 ///|
 /// Enable/disable shared memories.
 #borrow(config)
-pub extern "C" fn config_shared_memory_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_shared_memory_set"
+pub extern "C" fn config_shared_memory_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_shared_memory_set"
 
 ///|
 /// Enable/disable tail calls.
 #borrow(config)
-pub extern "C" fn config_wasm_tail_call_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_tail_call_set"
+pub extern "C" fn config_wasm_tail_call_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_tail_call_set"
 
 ///|
 /// Enable/disable reference types.
 #borrow(config)
-pub extern "C" fn config_wasm_reference_types_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_reference_types_set"
+pub extern "C" fn config_wasm_reference_types_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_reference_types_set"
 
 ///|
 /// Enable/disable function references.
 #borrow(config)
-pub extern "C" fn config_wasm_function_references_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_function_references_set"
+pub extern "C" fn config_wasm_function_references_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_function_references_set"
 
 ///|
 /// Enable/disable GC proposal.
@@ -254,117 +281,186 @@ pub extern "C" fn config_wasm_simd_set(config : Config, enable : Bool) -> Unit =
 ///|
 /// Enable/disable relaxed SIMD.
 #borrow(config)
-pub extern "C" fn config_wasm_relaxed_simd_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_relaxed_simd_set"
+pub extern "C" fn config_wasm_relaxed_simd_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_relaxed_simd_set"
 
 ///|
 /// Enable/disable deterministic relaxed SIMD.
 #borrow(config)
-pub extern "C" fn config_wasm_relaxed_simd_deterministic_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_relaxed_simd_deterministic_set"
+pub extern "C" fn config_wasm_relaxed_simd_deterministic_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_relaxed_simd_deterministic_set"
 
 ///|
 /// Enable/disable bulk memory.
 #borrow(config)
-pub extern "C" fn config_wasm_bulk_memory_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_bulk_memory_set"
+pub extern "C" fn config_wasm_bulk_memory_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_bulk_memory_set"
 
 ///|
 /// Enable/disable multi value.
 #borrow(config)
-pub extern "C" fn config_wasm_multi_value_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_multi_value_set"
+pub extern "C" fn config_wasm_multi_value_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_multi_value_set"
 
 ///|
 /// Enable/disable multi memory.
 #borrow(config)
-pub extern "C" fn config_wasm_multi_memory_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_multi_memory_set"
+pub extern "C" fn config_wasm_multi_memory_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_multi_memory_set"
 
 ///|
 /// Enable/disable memory64.
 #borrow(config)
-pub extern "C" fn config_wasm_memory64_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_memory64_set"
+pub extern "C" fn config_wasm_memory64_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_memory64_set"
 
 ///|
 /// Enable/disable wide arithmetic.
 #borrow(config)
-pub extern "C" fn config_wasm_wide_arithmetic_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_wide_arithmetic_set"
+pub extern "C" fn config_wasm_wide_arithmetic_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_wide_arithmetic_set"
 
 ///|
 /// Enable/disable exceptions.
 #borrow(config)
-pub extern "C" fn config_wasm_exceptions_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_exceptions_set"
+pub extern "C" fn config_wasm_exceptions_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_exceptions_set"
 
 ///|
 /// Enable/disable custom page sizes.
 #borrow(config)
-pub extern "C" fn config_wasm_custom_page_sizes_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_custom_page_sizes_set"
+pub extern "C" fn config_wasm_custom_page_sizes_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_custom_page_sizes_set"
 
 ///|
 /// Enable/disable stack switching.
 #borrow(config)
-pub extern "C" fn config_wasm_stack_switching_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_wasm_stack_switching_set"
+pub extern "C" fn config_wasm_stack_switching_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_wasm_stack_switching_set"
 
 ///|
 /// Set compilation strategy.
 #borrow(config)
-pub extern "C" fn config_strategy_set(config : Config, strategy : Strategy) -> Unit = "wasmtime_config_strategy_set"
+pub extern "C" fn config_strategy_set(
+  config : Config,
+  strategy : Strategy,
+) -> Unit = "wasmtime_config_strategy_set"
 
 ///|
 /// Enable/disable parallel compilation.
 #borrow(config)
-pub extern "C" fn config_parallel_compilation_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_parallel_compilation_set"
+pub extern "C" fn config_parallel_compilation_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_parallel_compilation_set"
 
 ///|
 /// Enable/disable Cranelift debug verifier.
 #borrow(config)
-pub extern "C" fn config_cranelift_debug_verifier_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_cranelift_debug_verifier_set"
+pub extern "C" fn config_cranelift_debug_verifier_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_cranelift_debug_verifier_set"
 
 ///|
 /// Enable/disable Cranelift NaN canonicalization.
 #borrow(config)
-pub extern "C" fn config_cranelift_nan_canonicalization_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_cranelift_nan_canonicalization_set"
+pub extern "C" fn config_cranelift_nan_canonicalization_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_cranelift_nan_canonicalization_set"
 
 ///|
 /// Set Cranelift optimization level.
 #borrow(config)
-pub extern "C" fn config_cranelift_opt_level_set(config : Config, level : OptLevel) -> Unit = "wasmtime_config_cranelift_opt_level_set"
+pub extern "C" fn config_cranelift_opt_level_set(
+  config : Config,
+  level : OptLevel,
+) -> Unit = "wasmtime_config_cranelift_opt_level_set"
 
 ///|
 /// Configure profiling strategy.
 #borrow(config)
-pub extern "C" fn config_profiler_set(config : Config, strategy : ProfilingStrategy) -> Unit = "wasmtime_config_profiler_set"
+pub extern "C" fn config_profiler_set(
+  config : Config,
+  strategy : ProfilingStrategy,
+) -> Unit = "wasmtime_config_profiler_set"
 
 ///|
 /// Configure memory movement semantics.
 #borrow(config)
-pub extern "C" fn config_memory_may_move_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_memory_may_move_set"
+pub extern "C" fn config_memory_may_move_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_memory_may_move_set"
 
 ///|
 /// Configure initial memory reservation size.
 #borrow(config)
-pub extern "C" fn config_memory_reservation_set(config : Config, bytes : UInt64) -> Unit = "wasmtime_config_memory_reservation_set"
+pub extern "C" fn config_memory_reservation_set(
+  config : Config,
+  bytes : UInt64,
+) -> Unit = "wasmtime_config_memory_reservation_set"
 
 ///|
 /// Configure memory guard size.
 #borrow(config)
-pub extern "C" fn config_memory_guard_size_set(config : Config, bytes : UInt64) -> Unit = "wasmtime_config_memory_guard_size_set"
+pub extern "C" fn config_memory_guard_size_set(
+  config : Config,
+  bytes : UInt64,
+) -> Unit = "wasmtime_config_memory_guard_size_set"
 
 ///|
 /// Configure memory reservation for growth size.
 #borrow(config)
-pub extern "C" fn config_memory_reservation_for_growth_set(config : Config, bytes : UInt64) -> Unit = "wasmtime_config_memory_reservation_for_growth_set"
+pub extern "C" fn config_memory_reservation_for_growth_set(
+  config : Config,
+  bytes : UInt64,
+) -> Unit = "wasmtime_config_memory_reservation_for_growth_set"
 
 ///|
 /// Enable/disable native unwind info.
 #borrow(config)
-pub extern "C" fn config_native_unwind_info_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_native_unwind_info_set"
+pub extern "C" fn config_native_unwind_info_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_native_unwind_info_set"
 
 ///|
 /// Enable/disable Mach ports for traps on macOS.
 #borrow(config)
-pub extern "C" fn config_macos_use_mach_ports_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_macos_use_mach_ports_set"
+pub extern "C" fn config_macos_use_mach_ports_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_macos_use_mach_ports_set"
 
 ///|
 /// Enable/disable signals-based traps.
 #borrow(config)
-pub extern "C" fn config_signals_based_traps_set(config : Config, enable : Bool) -> Unit = "wasmtime_config_signals_based_traps_set"
+pub extern "C" fn config_signals_based_traps_set(
+  config : Config,
+  enable : Bool,
+) -> Unit = "wasmtime_config_signals_based_traps_set"
 
 ///|
 /// Configure async fuel yield interval for a context.
@@ -417,6 +513,7 @@ pub extern "C" fn wat2wasm_bytes(
   error_out : Bytes,
 ) -> Bytes = "wasmtime_wat2wasm_bytes"
 
+///|
 #borrow(path, error_out)
 pub extern "C" fn read_file_bytes(
   path : Bytes,
@@ -626,17 +723,29 @@ pub extern "C" fn config_host_stack_creator_set_bytes(
 ///|
 /// Configure the target triple from UTF-8 bytes.
 #borrow(config, bytes)
-pub extern "C" fn config_target_set_bytes(config : Config, bytes : Bytes, len : Int) -> WasmtimeError = "wasmtime_config_target_set_bytes"
+pub extern "C" fn config_target_set_bytes(
+  config : Config,
+  bytes : Bytes,
+  len : Int,
+) -> WasmtimeError = "wasmtime_config_target_set_bytes"
 
 ///|
 /// Configure cache from UTF-8 bytes (empty => default).
 #borrow(config, bytes)
-pub extern "C" fn config_cache_config_load_bytes(config : Config, bytes : Bytes, len : Int) -> WasmtimeError = "wasmtime_config_cache_config_load_bytes"
+pub extern "C" fn config_cache_config_load_bytes(
+  config : Config,
+  bytes : Bytes,
+  len : Int,
+) -> WasmtimeError = "wasmtime_config_cache_config_load_bytes"
 
 ///|
 /// Enable a Cranelift flag from UTF-8 bytes.
 #borrow(config, bytes)
-pub extern "C" fn config_cranelift_flag_enable_bytes(config : Config, bytes : Bytes, len : Int) -> Unit = "wasmtime_config_cranelift_flag_enable_bytes"
+pub extern "C" fn config_cranelift_flag_enable_bytes(
+  config : Config,
+  bytes : Bytes,
+  len : Int,
+) -> Unit = "wasmtime_config_cranelift_flag_enable_bytes"
 
 ///|
 /// Set a Cranelift flag from UTF-8 bytes.
@@ -706,22 +815,38 @@ pub extern "C" fn val_kind_at(vals : Bytes, index : Int) -> Int = "wasmtime_val_
 ///|
 /// Set an i32 value at index.
 #borrow(vals)
-pub extern "C" fn val_set_i32_at(vals : Bytes, index : Int, value : Int) -> Unit = "wasmtime_val_set_i32_at"
+pub extern "C" fn val_set_i32_at(
+  vals : Bytes,
+  index : Int,
+  value : Int,
+) -> Unit = "wasmtime_val_set_i32_at"
 
 ///|
 /// Set an i64 value at index.
 #borrow(vals)
-pub extern "C" fn val_set_i64_at(vals : Bytes, index : Int, value : Int64) -> Unit = "wasmtime_val_set_i64_at"
+pub extern "C" fn val_set_i64_at(
+  vals : Bytes,
+  index : Int,
+  value : Int64,
+) -> Unit = "wasmtime_val_set_i64_at"
 
 ///|
 /// Set an f32 value at index.
 #borrow(vals)
-pub extern "C" fn val_set_f32_at(vals : Bytes, index : Int, value : Float) -> Unit = "wasmtime_val_set_f32_at"
+pub extern "C" fn val_set_f32_at(
+  vals : Bytes,
+  index : Int,
+  value : Float,
+) -> Unit = "wasmtime_val_set_f32_at"
 
 ///|
 /// Set an f64 value at index.
 #borrow(vals)
-pub extern "C" fn val_set_f64_at(vals : Bytes, index : Int, value : Double) -> Unit = "wasmtime_val_set_f64_at"
+pub extern "C" fn val_set_f64_at(
+  vals : Bytes,
+  index : Int,
+  value : Double,
+) -> Unit = "wasmtime_val_set_f64_at"
 
 ///|
 /// Get an i32 value at index.

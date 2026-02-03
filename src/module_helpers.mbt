@@ -107,12 +107,7 @@ pub fn linker_instantiate_result(
   let trap_ptr = make_ptr_buffer()
   let err_ptr = make_ptr_buffer()
   let ok = linker_instantiate_bytes(
-    linker,
-    context,
-    module_val,
-    instance,
-    trap_ptr,
-    err_ptr,
+    linker, context, module_val, instance, trap_ptr, err_ptr,
   )
   if ok && ptr_buffer_is_null(err_ptr) && ptr_buffer_is_null(trap_ptr) {
     Ok(instance)
@@ -146,12 +141,12 @@ pub fn instance_export_func_result(
   let name_bytes = @utf8.encode(name)
   let func_buf = make_func_buffer()
   if instance_export_get_func_bytes(
-    context,
-    instance,
-    name_bytes,
-    name_bytes.length(),
-    func_buf,
-  ) {
+      context,
+      instance,
+      name_bytes,
+      name_bytes.length(),
+      func_buf,
+    ) {
     Ok(func_buf)
   } else {
     Err(@builtin.Failure::Failure("instance_export_get_func failed"))
