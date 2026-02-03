@@ -1497,6 +1497,16 @@ typedef struct wasmtime_os_ring_thread_args {
   atomic_bool *start_flag;
 } wasmtime_os_ring_thread_args_t;
 
+typedef struct wasmtime_os_payload_thread_args {
+  wasmtime_ring_header_t *ring;
+  uint32_t *data;
+  uint32_t items;
+  uint32_t mask;
+  uint32_t payload_words;
+  atomic_int *ready_count;
+  atomic_bool *start_flag;
+} wasmtime_os_payload_thread_args_t;
+
 static void *wasmtime_os_ring_producer_main(void *arg) {
   wasmtime_os_ring_thread_args_t *args = (wasmtime_os_ring_thread_args_t *)arg;
   wasmtime_bench_wait_start(args->ready_count, args->start_flag);
@@ -1539,6 +1549,63 @@ static void *wasmtime_os_ring_consumer_main(void *arg) {
     }
     uint32_t value = data[tail & mask];
     sum += (uint64_t)value;
+    tail = tail + 1;
+    atomic_store_explicit(&ring->tail, tail, memory_order_release);
+  }
+  ring->sum = sum;
+  ring->cons_spins = spins;
+  return NULL;
+}
+
+static void *wasmtime_os_payload_producer_main(void *arg) {
+  wasmtime_os_payload_thread_args_t *args = (wasmtime_os_payload_thread_args_t *)arg;
+  wasmtime_bench_wait_start(args->ready_count, args->start_flag);
+  wasmtime_ring_header_t *ring = args->ring;
+  uint32_t *data = args->data;
+  uint32_t mask = args->mask;
+  uint32_t capacity = mask + 1;
+  uint32_t payload_words = args->payload_words;
+  uint32_t head = atomic_load_explicit(&ring->head, memory_order_relaxed);
+  uint64_t spins = 0;
+  for (uint32_t i = 0; i < args->items; i++) {
+    uint32_t tail = atomic_load_explicit(&ring->tail, memory_order_acquire);
+    while ((head - tail) >= capacity) {
+      tail = atomic_load_explicit(&ring->tail, memory_order_acquire);
+      sched_yield();
+      spins++;
+    }
+    uint32_t base = (head & mask) * payload_words;
+    for (uint32_t j = 0; j < payload_words; j++) {
+      data[base + j] = i + j + 1;
+    }
+    head = head + 1;
+    atomic_store_explicit(&ring->head, head, memory_order_release);
+  }
+  ring->prod_spins = spins;
+  return NULL;
+}
+
+static void *wasmtime_os_payload_consumer_main(void *arg) {
+  wasmtime_os_payload_thread_args_t *args = (wasmtime_os_payload_thread_args_t *)arg;
+  wasmtime_bench_wait_start(args->ready_count, args->start_flag);
+  wasmtime_ring_header_t *ring = args->ring;
+  uint32_t *data = args->data;
+  uint32_t mask = args->mask;
+  uint32_t payload_words = args->payload_words;
+  uint32_t tail = atomic_load_explicit(&ring->tail, memory_order_relaxed);
+  uint64_t sum = 0;
+  uint64_t spins = 0;
+  for (uint32_t i = 0; i < args->items; i++) {
+    uint32_t head = atomic_load_explicit(&ring->head, memory_order_acquire);
+    while (head == tail) {
+      head = atomic_load_explicit(&ring->head, memory_order_acquire);
+      sched_yield();
+      spins++;
+    }
+    uint32_t base = (tail & mask) * payload_words;
+    for (uint32_t j = 0; j < payload_words; j++) {
+      sum += (uint64_t)data[base + j];
+    }
     tail = tail + 1;
     atomic_store_explicit(&ring->tail, tail, memory_order_release);
   }
@@ -2493,6 +2560,121 @@ uint64_t wasmtime_bench_os_shared_ring(
 #endif
 }
 
+static uint64_t wasmtime_payload_expected_sum(uint32_t items, uint32_t payload_words) {
+  uint64_t items_u64 = (uint64_t)items;
+  uint64_t words_u64 = (uint64_t)payload_words;
+  uint64_t base = items_u64 * (items_u64 + 1) / 2;
+  uint64_t per_item = words_u64 * (words_u64 - 1) / 2;
+  return words_u64 * base + items_u64 * per_item;
+}
+
+uint64_t wasmtime_bench_os_shared_payload(
+  int32_t items,
+  int32_t slots,
+  int32_t payload_words,
+  uint8_t *error_out,
+  uint8_t *prod_spins_out,
+  uint8_t *cons_spins_out
+) {
+  wasmtime_bench_error_clear(error_out);
+  wasmtime_bench_clear_u64(prod_spins_out);
+  wasmtime_bench_clear_u64(cons_spins_out);
+#if defined(_WIN32)
+  (void)items;
+  (void)slots;
+  (void)payload_words;
+  wasmtime_bench_error_message(error_out, "bench: os shared memory not supported on windows");
+  return 0;
+#else
+  if (items <= 0 || slots <= 1 || payload_words <= 0) {
+    wasmtime_bench_error_message(error_out, "bench: invalid items, slots, or payload");
+    return 0;
+  }
+  if ((slots & (slots - 1)) != 0) {
+    wasmtime_bench_error_message(error_out, "bench: slots must be power of two");
+    return 0;
+  }
+  if ((uint64_t)items > UINT32_MAX) {
+    wasmtime_bench_error_message(error_out, "bench: items exceed i32");
+    return 0;
+  }
+  size_t header_size = sizeof(wasmtime_ring_header_t);
+  if (header_size != 32) {
+    wasmtime_bench_error_message(error_out, "bench: ring header size mismatch");
+    return 0;
+  }
+  uint64_t total_words = (uint64_t)slots * (uint64_t)payload_words;
+  if (total_words == 0 || total_words > ((SIZE_MAX - header_size) / sizeof(uint32_t))) {
+    wasmtime_bench_error_message(error_out, "bench: payload size too large");
+    return 0;
+  }
+  size_t size = header_size + (size_t)total_words * sizeof(uint32_t);
+  void *mem = mmap(
+    NULL,
+    size,
+    PROT_READ | PROT_WRITE,
+    MAP_SHARED | MAP_ANONYMOUS,
+    -1,
+    0
+  );
+  if (mem == MAP_FAILED) {
+    wasmtime_bench_error_message(error_out, "bench: mmap failed");
+    return 0;
+  }
+  wasmtime_ring_header_t *ring = (wasmtime_ring_header_t *)mem;
+  uint32_t *data = (uint32_t *)((uint8_t *)mem + header_size);
+  atomic_store_explicit(&ring->head, 0, memory_order_relaxed);
+  atomic_store_explicit(&ring->tail, 0, memory_order_relaxed);
+  ring->sum = 0;
+  memset(data, 0, (size_t)total_words * sizeof(uint32_t));
+  pthread_t threads[2];
+  wasmtime_os_payload_thread_args_t args[2];
+  uint32_t mask = (uint32_t)(slots - 1);
+  args[0].ring = ring;
+  args[0].data = data;
+  args[0].items = (uint32_t)items;
+  args[0].mask = mask;
+  args[0].payload_words = (uint32_t)payload_words;
+  args[0].ready_count = NULL;
+  args[0].start_flag = NULL;
+  args[1] = args[0];
+  uint64_t start = moonbit_clock_now_ns();
+  int32_t started = 0;
+  if (pthread_create(&threads[started], NULL, wasmtime_os_payload_producer_main, &args[0]) == 0) {
+    started++;
+  }
+  if (pthread_create(&threads[started], NULL, wasmtime_os_payload_consumer_main, &args[1]) == 0) {
+    started++;
+  }
+  for (int32_t i = 0; i < started; i++) {
+    pthread_join(threads[i], NULL);
+  }
+  uint64_t end = moonbit_clock_now_ns();
+  uint32_t head = atomic_load_explicit(&ring->head, memory_order_relaxed);
+  uint32_t tail = atomic_load_explicit(&ring->tail, memory_order_relaxed);
+  uint64_t sum = ring->sum;
+  uint64_t prod_spins = ring->prod_spins;
+  uint64_t cons_spins = ring->cons_spins;
+  munmap(mem, size);
+  if (started != 2) {
+    wasmtime_bench_error_message(error_out, "bench: thread spawn failed");
+    return 0;
+  }
+  uint64_t expected = wasmtime_payload_expected_sum((uint32_t)items, (uint32_t)payload_words);
+  if (head != (uint32_t)items || tail != (uint32_t)items) {
+    wasmtime_bench_error_message(error_out, "bench: head/tail mismatch");
+    return 0;
+  }
+  if (sum != expected) {
+    wasmtime_bench_error_message(error_out, "bench: sum mismatch");
+    return 0;
+  }
+  wasmtime_bench_write_u64(prod_spins_out, prod_spins);
+  wasmtime_bench_write_u64(cons_spins_out, cons_spins);
+  return end - start;
+#endif
+}
+
 
 uint64_t wasmtime_bench_wasm_shared_ring(
   int32_t items,
@@ -2877,6 +3059,121 @@ uint64_t wasmtime_bench_os_shared_ring_warm(
     return 0;
   }
   uint64_t expected = ((uint64_t)items * (uint64_t)(items + 1)) / 2;
+  if (head != (uint32_t)items || tail != (uint32_t)items) {
+    wasmtime_bench_error_message(error_out, "bench: head/tail mismatch");
+    return 0;
+  }
+  if (sum != expected) {
+    wasmtime_bench_error_message(error_out, "bench: sum mismatch");
+    return 0;
+  }
+  wasmtime_bench_write_u64(prod_spins_out, prod_spins);
+  wasmtime_bench_write_u64(cons_spins_out, cons_spins);
+  return end - start;
+#endif
+}
+
+uint64_t wasmtime_bench_os_shared_payload_warm(
+  int32_t items,
+  int32_t slots,
+  int32_t payload_words,
+  uint8_t *error_out,
+  uint8_t *prod_spins_out,
+  uint8_t *cons_spins_out
+) {
+  wasmtime_bench_error_clear(error_out);
+  wasmtime_bench_clear_u64(prod_spins_out);
+  wasmtime_bench_clear_u64(cons_spins_out);
+#if defined(_WIN32)
+  (void)items;
+  (void)slots;
+  (void)payload_words;
+  wasmtime_bench_error_message(error_out, "bench: os shared memory not supported on windows");
+  return 0;
+#else
+  if (items <= 0 || slots <= 1 || payload_words <= 0) {
+    wasmtime_bench_error_message(error_out, "bench: invalid items, slots, or payload");
+    return 0;
+  }
+  if ((slots & (slots - 1)) != 0) {
+    wasmtime_bench_error_message(error_out, "bench: slots must be power of two");
+    return 0;
+  }
+  if ((uint64_t)items > UINT32_MAX) {
+    wasmtime_bench_error_message(error_out, "bench: items exceed i32");
+    return 0;
+  }
+  size_t header_size = sizeof(wasmtime_ring_header_t);
+  if (header_size != 32) {
+    wasmtime_bench_error_message(error_out, "bench: ring header size mismatch");
+    return 0;
+  }
+  uint64_t total_words = (uint64_t)slots * (uint64_t)payload_words;
+  if (total_words == 0 || total_words > ((SIZE_MAX - header_size) / sizeof(uint32_t))) {
+    wasmtime_bench_error_message(error_out, "bench: payload size too large");
+    return 0;
+  }
+  size_t size = header_size + (size_t)total_words * sizeof(uint32_t);
+  void *mem = mmap(
+    NULL,
+    size,
+    PROT_READ | PROT_WRITE,
+    MAP_SHARED | MAP_ANONYMOUS,
+    -1,
+    0
+  );
+  if (mem == MAP_FAILED) {
+    wasmtime_bench_error_message(error_out, "bench: mmap failed");
+    return 0;
+  }
+  wasmtime_ring_header_t *ring = (wasmtime_ring_header_t *)mem;
+  uint32_t *data = (uint32_t *)((uint8_t *)mem + header_size);
+  atomic_store_explicit(&ring->head, 0, memory_order_relaxed);
+  atomic_store_explicit(&ring->tail, 0, memory_order_relaxed);
+  ring->sum = 0;
+  memset(data, 0, (size_t)total_words * sizeof(uint32_t));
+  pthread_t threads[2];
+  wasmtime_os_payload_thread_args_t args[2];
+  atomic_int ready_count;
+  atomic_init(&ready_count, 0);
+  atomic_bool start_flag;
+  atomic_init(&start_flag, false);
+  uint32_t mask = (uint32_t)(slots - 1);
+  args[0].ring = ring;
+  args[0].data = data;
+  args[0].items = (uint32_t)items;
+  args[0].mask = mask;
+  args[0].payload_words = (uint32_t)payload_words;
+  args[0].ready_count = &ready_count;
+  args[0].start_flag = &start_flag;
+  args[1] = args[0];
+  int32_t started = 0;
+  if (pthread_create(&threads[started], NULL, wasmtime_os_payload_producer_main, &args[0]) == 0) {
+    started++;
+  }
+  if (pthread_create(&threads[started], NULL, wasmtime_os_payload_consumer_main, &args[1]) == 0) {
+    started++;
+  }
+  while (atomic_load_explicit(&ready_count, memory_order_acquire) != started) {
+    sched_yield();
+  }
+  uint64_t start = moonbit_clock_now_ns();
+  atomic_store_explicit(&start_flag, true, memory_order_release);
+  for (int32_t i = 0; i < started; i++) {
+    pthread_join(threads[i], NULL);
+  }
+  uint64_t end = moonbit_clock_now_ns();
+  uint32_t head = atomic_load_explicit(&ring->head, memory_order_relaxed);
+  uint32_t tail = atomic_load_explicit(&ring->tail, memory_order_relaxed);
+  uint64_t sum = ring->sum;
+  uint64_t prod_spins = ring->prod_spins;
+  uint64_t cons_spins = ring->cons_spins;
+  munmap(mem, size);
+  if (started != 2) {
+    wasmtime_bench_error_message(error_out, "bench: thread spawn failed");
+    return 0;
+  }
+  uint64_t expected = wasmtime_payload_expected_sum((uint32_t)items, (uint32_t)payload_words);
   if (head != (uint32_t)items || tail != (uint32_t)items) {
     wasmtime_bench_error_message(error_out, "bench: head/tail mismatch");
     return 0;

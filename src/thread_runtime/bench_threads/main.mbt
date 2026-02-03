@@ -21,6 +21,30 @@ pub extern "C" fn bench_os_shared_ring_warm(
 ) -> UInt64 = "wasmtime_bench_os_shared_ring_warm"
 
 ///|
+/// Ring buffer benchmark: OS shared memory payload (cold).
+#borrow(error_out, prod_spins_out, cons_spins_out)
+pub extern "C" fn bench_os_shared_payload(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  error_out : Bytes,
+  prod_spins_out : Bytes,
+  cons_spins_out : Bytes,
+) -> UInt64 = "wasmtime_bench_os_shared_payload"
+
+///|
+/// Ring buffer benchmark: OS shared memory payload (warm).
+#borrow(error_out, prod_spins_out, cons_spins_out)
+pub extern "C" fn bench_os_shared_payload_warm(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  error_out : Bytes,
+  prod_spins_out : Bytes,
+  cons_spins_out : Bytes,
+) -> UInt64 = "wasmtime_bench_os_shared_payload_warm"
+
+///|
 #borrow(bytes)
 extern "C" fn error_message_bytes(bytes : Bytes) -> Bytes = "wasmtime_error_message_bytes"
 
@@ -220,6 +244,215 @@ fn ring_wat_wait(
 }
 
 ///|
+fn ring_payload_wat(pages : UInt64, payload_words : Int) -> String {
+  let payload_stride = payload_words * 4
+  (
+    $|(module
+    $|  (memory (import "env" "mem") \{pages} \{pages} shared)
+    $|  (func (export "produce") (param $n i32) (param $mask i32)
+    $|    (local $i i32) (local $head i32) (local $tail i32) (local $cap i32) (local $addr i32) (local $spins i64) (local $j i32)
+    $|    (local.set $i (i32.const 0))
+    $|    (local.set $cap (i32.add (local.get $mask) (i32.const 1)))
+    $|    (local.set $head (i32.atomic.load (i32.const 0)))
+    $|    (local.set $spins (i64.const 0))
+    $|    (loop $loop
+    $|      (block $wait
+    $|        (loop $spin
+    $|          (local.set $tail (i32.atomic.load (i32.const 4)))
+    $|          (br_if $wait (i32.lt_u (i32.sub (local.get $head) (local.get $tail)) (local.get $cap)))
+    $|          (local.set $spins (i64.add (local.get $spins) (i64.const 1)))
+    $|          (br $spin)
+    $|        )
+    $|      )
+    $|      (local.set $addr
+    $|        (i32.add
+    $|          (i32.const 32)
+    $|          (i32.mul (i32.and (local.get $head) (local.get $mask)) (i32.const \{payload_stride}))
+    $|        )
+    $|      )
+    $|      (local.set $j (i32.const 0))
+    $|      (loop $payload
+    $|        (i32.store
+    $|          (i32.add (local.get $addr) (i32.shl (local.get $j) (i32.const 2)))
+    $|          (i32.add (i32.add (local.get $i) (local.get $j)) (i32.const 1))
+    $|        )
+    $|        (local.set $j (i32.add (local.get $j) (i32.const 1)))
+    $|        (br_if $payload (i32.lt_u (local.get $j) (i32.const \{payload_words})))
+    $|      )
+    $|      (local.set $head (i32.add (local.get $head) (i32.const 1)))
+    $|      (i32.atomic.store (i32.const 0) (local.get $head))
+    $|      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+    $|      (br_if $loop (i32.lt_u (local.get $i) (local.get $n)))
+    $|    )
+    $|    (i64.store (i32.const 16) (local.get $spins))
+    $|  )
+    $|  (func (export "consume") (param $n i32) (param $mask i32)
+    $|    (local $i i32) (local $head i32) (local $tail i32) (local $addr i32) (local $sum i64) (local $spins i64) (local $j i32)
+    $|    (local.set $i (i32.const 0))
+    $|    (local.set $tail (i32.atomic.load (i32.const 4)))
+    $|    (local.set $sum (i64.const 0))
+    $|    (local.set $spins (i64.const 0))
+    $|    (loop $loop
+    $|      (block $wait
+    $|        (loop $spin
+    $|          (local.set $head (i32.atomic.load (i32.const 0)))
+    $|          (br_if $wait (i32.ne (local.get $head) (local.get $tail)))
+    $|          (local.set $spins (i64.add (local.get $spins) (i64.const 1)))
+    $|          (br $spin)
+    $|        )
+    $|      )
+    $|      (local.set $addr
+    $|        (i32.add
+    $|          (i32.const 32)
+    $|          (i32.mul (i32.and (local.get $tail) (local.get $mask)) (i32.const \{payload_stride}))
+    $|        )
+    $|      )
+    $|      (local.set $j (i32.const 0))
+    $|      (loop $payload
+    $|        (local.set $sum
+    $|          (i64.add
+    $|            (local.get $sum)
+    $|            (i64.extend_i32_u
+    $|              (i32.load (i32.add (local.get $addr) (i32.shl (local.get $j) (i32.const 2))))
+    $|            )
+    $|          )
+    $|        )
+    $|        (local.set $j (i32.add (local.get $j) (i32.const 1)))
+    $|        (br_if $payload (i32.lt_u (local.get $j) (i32.const \{payload_words})))
+    $|      )
+    $|      (local.set $tail (i32.add (local.get $tail) (i32.const 1)))
+    $|      (i32.atomic.store (i32.const 4) (local.get $tail))
+    $|      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+    $|      (br_if $loop (i32.lt_u (local.get $i) (local.get $n)))
+    $|    )
+    $|    (i64.store (i32.const 8) (local.get $sum))
+    $|    (i64.store (i32.const 24) (local.get $spins))
+    $|  )
+    $|)
+  )
+}
+
+///|
+fn ring_payload_wat_wait(
+  pages : UInt64,
+  wait_timeout_ns : UInt64,
+  spin_limit : Int,
+  payload_words : Int,
+) -> String {
+  let payload_stride = payload_words * 4
+  (
+    $|(module
+    $|  (memory (import "env" "mem") \{pages} \{pages} shared)
+    $|  (func (export "produce") (param $n i32) (param $mask i32)
+    $|    (local $i i32) (local $head i32) (local $tail i32) (local $cap i32) (local $addr i32) (local $spins i64) (local $spin_i i32) (local $j i32)
+    $|    (local.set $i (i32.const 0))
+    $|    (local.set $cap (i32.add (local.get $mask) (i32.const 1)))
+    $|    (local.set $head (i32.atomic.load (i32.const 0)))
+    $|    (local.set $spins (i64.const 0))
+    $|    (local.set $spin_i (i32.const 0))
+    $|    (loop $loop
+    $|      (block $wait
+    $|        (loop $spin
+    $|          (local.set $tail (i32.atomic.load (i32.const 4)))
+    $|          (br_if $wait (i32.lt_u (i32.sub (local.get $head) (local.get $tail)) (local.get $cap)))
+    $|          (local.set $spins (i64.add (local.get $spins) (i64.const 1)))
+    $|          (if (i32.lt_u (local.get $spin_i) (i32.const \{spin_limit}))
+    $|            (then
+    $|              (local.set $spin_i (i32.add (local.get $spin_i) (i32.const 1)))
+    $|              (br $spin)
+    $|            )
+    $|            (else
+    $|              (local.set $spin_i (i32.const 0))
+    $|              (drop (memory.atomic.wait32 (i32.const 4) (local.get $tail) (i64.const \{wait_timeout_ns})))
+    $|              (br $spin)
+    $|            )
+    $|          )
+    $|        )
+    $|      )
+    $|      (local.set $spin_i (i32.const 0))
+    $|      (local.set $addr
+    $|        (i32.add
+    $|          (i32.const 32)
+    $|          (i32.mul (i32.and (local.get $head) (local.get $mask)) (i32.const \{payload_stride}))
+    $|        )
+    $|      )
+    $|      (local.set $j (i32.const 0))
+    $|      (loop $payload
+    $|        (i32.store
+    $|          (i32.add (local.get $addr) (i32.shl (local.get $j) (i32.const 2)))
+    $|          (i32.add (i32.add (local.get $i) (local.get $j)) (i32.const 1))
+    $|        )
+    $|        (local.set $j (i32.add (local.get $j) (i32.const 1)))
+    $|        (br_if $payload (i32.lt_u (local.get $j) (i32.const \{payload_words})))
+    $|      )
+    $|      (local.set $head (i32.add (local.get $head) (i32.const 1)))
+    $|      (i32.atomic.store (i32.const 0) (local.get $head))
+    $|      (drop (memory.atomic.notify (i32.const 0) (i32.const 1)))
+    $|      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+    $|      (br_if $loop (i32.lt_u (local.get $i) (local.get $n)))
+    $|    )
+    $|    (i64.store (i32.const 16) (local.get $spins))
+    $|  )
+    $|  (func (export "consume") (param $n i32) (param $mask i32)
+    $|    (local $i i32) (local $head i32) (local $tail i32) (local $addr i32) (local $sum i64) (local $spins i64) (local $spin_i i32) (local $j i32)
+    $|    (local.set $i (i32.const 0))
+    $|    (local.set $tail (i32.atomic.load (i32.const 4)))
+    $|    (local.set $sum (i64.const 0))
+    $|    (local.set $spins (i64.const 0))
+    $|    (local.set $spin_i (i32.const 0))
+    $|    (loop $loop
+    $|      (block $wait
+    $|        (loop $spin
+    $|          (local.set $head (i32.atomic.load (i32.const 0)))
+    $|          (br_if $wait (i32.ne (local.get $head) (local.get $tail)))
+    $|          (local.set $spins (i64.add (local.get $spins) (i64.const 1)))
+    $|          (if (i32.lt_u (local.get $spin_i) (i32.const \{spin_limit}))
+    $|            (then
+    $|              (local.set $spin_i (i32.add (local.get $spin_i) (i32.const 1)))
+    $|              (br $spin)
+    $|            )
+    $|            (else
+    $|              (local.set $spin_i (i32.const 0))
+    $|              (drop (memory.atomic.wait32 (i32.const 0) (local.get $head) (i64.const \{wait_timeout_ns})))
+    $|              (br $spin)
+    $|            )
+    $|          )
+    $|        )
+    $|      )
+    $|      (local.set $spin_i (i32.const 0))
+    $|      (local.set $addr
+    $|        (i32.add
+    $|          (i32.const 32)
+    $|          (i32.mul (i32.and (local.get $tail) (local.get $mask)) (i32.const \{payload_stride}))
+    $|        )
+    $|      )
+    $|      (local.set $j (i32.const 0))
+    $|      (loop $payload
+    $|        (local.set $sum
+    $|          (i64.add
+    $|            (local.get $sum)
+    $|            (i64.extend_i32_u
+    $|              (i32.load (i32.add (local.get $addr) (i32.shl (local.get $j) (i32.const 2))))
+    $|            )
+    $|          )
+    $|        )
+    $|        (local.set $j (i32.add (local.get $j) (i32.const 1)))
+    $|        (br_if $payload (i32.lt_u (local.get $j) (i32.const \{payload_words})))
+    $|      )
+    $|      (local.set $tail (i32.add (local.get $tail) (i32.const 1)))
+    $|      (i32.atomic.store (i32.const 4) (local.get $tail))
+    $|      (drop (memory.atomic.notify (i32.const 4) (i32.const 1)))
+    $|      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+    $|      (br_if $loop (i32.lt_u (local.get $i) (local.get $n)))
+    $|    )
+    $|    (i64.store (i32.const 8) (local.get $sum))
+    $|    (i64.store (i32.const 24) (local.get $spins))
+    $|  )
+    $|)
+  )
+}
+
+///|
 fn make_ring_args(items : Int, mask : Int) -> Bytes {
   let args = @wasmtime.make_val_buffer(2)
   @wasmtime.val_buffer_set_i32(args, 0, items)
@@ -242,6 +475,23 @@ fn validate_ring_args(items : Int, slots : Int) -> String? {
     Some("items exceed i32")
   } else {
     None
+  }
+}
+
+///|
+fn validate_payload_args(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+) -> String? {
+  match validate_ring_args(items, slots) {
+    Some(msg) => Some(msg)
+    None =>
+      if payload_words <= 0 {
+        Some("payload bytes invalid")
+      } else {
+        None
+      }
   }
 }
 
@@ -343,6 +593,24 @@ fn default_wait_timeout_us(slots : Int) -> Int? {
 }
 
 ///|
+fn payload_words_from_bytes(payload_bytes : Int) -> Int {
+  if payload_bytes <= 0 {
+    0
+  } else {
+    (payload_bytes + 3) / 4
+  }
+}
+
+///|
+fn payload_expected_sum(items : Int, payload_words : Int) -> UInt64 {
+  let items_u64 = Int::to_uint64(items)
+  let words_u64 = Int::to_uint64(payload_words)
+  let base = items_u64 * (items_u64 + 1) / 2
+  let per_item = words_u64 * (words_u64 - 1) / 2
+  words_u64 * base + items_u64 * per_item
+}
+
+///|
 fn wait_timeout_ns_from_us(us : Int) -> UInt64 {
   let us_u64 : UInt64 = if us < 0 { 0 } else { Int::to_uint64(us) }
   us_u64 * 1000
@@ -353,6 +621,7 @@ fn usage() -> Unit {
   println("bench_threads ring options:")
   println("  --items N        total items per run (default: 1000000)")
   println("  --slots N        ring slots (power of two, default: 1024)")
+  println("  --payload-bytes N  per-item payload size in bytes (default: 0)")
   println("  --sweep          sweep slots list")
   println("  --slots-list CSV override sweep slots, e.g. 64,256,1024")
   println("  --wasm-wait      also run wasm atomic.wait variants")
@@ -400,6 +669,32 @@ fn bench_os_shared_ring_result(
   }
   if not(@wasmtime.ptr_buffer_is_null(err_ptr)) {
     Err(take_error_message(err_ptr, "os ring failed"))
+  } else {
+    Ok((elapsed, bytes_read_u64(prod_spins), bytes_read_u64(cons_spins)))
+  }
+}
+
+///|
+fn bench_os_shared_payload_result(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  warm : Bool,
+) -> Result[(UInt64, UInt64, UInt64), String] {
+  let err_ptr = @wasmtime.make_ptr_buffer()
+  let prod_spins = Bytes::make(8, 0)
+  let cons_spins = Bytes::make(8, 0)
+  let elapsed = if warm {
+    bench_os_shared_payload_warm(
+      items, slots, payload_words, err_ptr, prod_spins, cons_spins,
+    )
+  } else {
+    bench_os_shared_payload(
+      items, slots, payload_words, err_ptr, prod_spins, cons_spins,
+    )
+  }
+  if not(@wasmtime.ptr_buffer_is_null(err_ptr)) {
+    Err(take_error_message(err_ptr, "os payload failed"))
   } else {
     Ok((elapsed, bytes_read_u64(prod_spins), bytes_read_u64(cons_spins)))
   }
@@ -472,6 +767,74 @@ fn run_wasm_ring_once(
 }
 
 ///|
+fn run_wasm_payload_once(
+  rt : @thread_runtime.ThreadRuntime,
+  wat : String,
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  measure : Bool,
+) -> Result[(UInt64, UInt64, UInt64), String] {
+  let header_size = 32
+  let payload_stride = payload_words * 4
+  let total_len = header_size + slots * payload_stride
+  if total_len <= 0 {
+    return Err("shared memory size invalid")
+  }
+  let offset : UInt64 = 0
+  let zero = Bytes::make(total_len, 0)
+  match @thread_runtime.thread_runtime_mem_write(rt, offset, zero) {
+    Ok(_) => ()
+    Err(err) => return Err("\{err}")
+  }
+  let mask = slots - 1
+  let args = make_ring_args(items, mask)
+  let start = if measure { @wasmtime.clock_now_ns() } else { 0 }
+  let prod_handle = match
+    @thread_runtime.thread_runtime_spawn_wat(rt, wat, "produce", args) {
+    Ok(handle) => handle
+    Err(err) => return Err("\{err}")
+  }
+  let cons_handle = match
+    @thread_runtime.thread_runtime_spawn_wat(rt, wat, "consume", args) {
+    Ok(handle) => handle
+    Err(err) => {
+      let _ = @thread_runtime.thread_runtime_join(prod_handle)
+      return Err("\{err}")
+    }
+  }
+  match @thread_runtime.thread_runtime_join(prod_handle) {
+    Ok(_) => ()
+    Err(err) => return Err("\{err}")
+  }
+  match @thread_runtime.thread_runtime_join(cons_handle) {
+    Ok(_) => ()
+    Err(err) => return Err("\{err}")
+  }
+  let end = if measure { @wasmtime.clock_now_ns() } else { 0 }
+  let header = match
+    @thread_runtime.thread_runtime_mem_read(rt, offset, header_size) {
+    Ok(bytes) => bytes
+    Err(err) => return Err("\{err}")
+  }
+  let head = read_u32_le(header, 0)
+  let tail = read_u32_le(header, 4)
+  let sum = read_u64_le(header, 8)
+  let prod_spins = read_u64_le(header, 16)
+  let cons_spins = read_u64_le(header, 24)
+  let expected = payload_expected_sum(items, payload_words)
+  let items_u64 = Int::to_uint64(items)
+  if head != items_u64 || tail != items_u64 {
+    return Err("head/tail mismatch")
+  }
+  if sum != expected {
+    return Err("sum mismatch")
+  }
+  let elapsed = if measure { end - start } else { 0 }
+  Ok((elapsed, prod_spins, cons_spins))
+}
+
+///|
 fn bench_wasm_shared_ring_runtime(
   items : Int,
   slots : Int,
@@ -507,6 +870,54 @@ fn bench_wasm_shared_ring_runtime(
         run_wasm_ring_once(rt, wat, items, slots, true)
       } else {
         run_wasm_ring_once(rt, wat, items, slots, true)
+      }
+      @thread_runtime.thread_runtime_delete(rt)
+      result
+    }
+    Err(err) => Err("\{err}")
+  }
+}
+
+///|
+fn bench_wasm_shared_payload_runtime(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  warm : Bool,
+  use_wait : Bool,
+  wait_timeout_ns : UInt64,
+  spin_limit : Int,
+) -> Result[(UInt64, UInt64, UInt64), String] {
+  match validate_payload_args(items, slots, payload_words) {
+    Some(msg) => return Err(msg)
+    None => ()
+  }
+  let header_size = 32
+  let payload_stride = payload_words * 4
+  let total_len = header_size + slots * payload_stride
+  let pages = @thread_runtime.shared_pages_for_bytes(Int::to_uint64(total_len))
+  let wat = if use_wait {
+    ring_payload_wat_wait(pages, wait_timeout_ns, spin_limit, payload_words)
+  } else {
+    ring_payload_wat(pages, payload_words)
+  }
+  let runtime_res = @thread_runtime.thread_runtime_new(pages.to_int())
+  match runtime_res {
+    Ok(rt) => {
+      let result = if warm {
+        let warmup = run_wasm_payload_once(
+          rt, wat, items, slots, payload_words, false,
+        )
+        match warmup {
+          Ok(_) => ()
+          Err(msg) => {
+            @thread_runtime.thread_runtime_delete(rt)
+            return Err(msg)
+          }
+        }
+        run_wasm_payload_once(rt, wat, items, slots, payload_words, true)
+      } else {
+        run_wasm_payload_once(rt, wat, items, slots, payload_words, true)
       }
       @thread_runtime.thread_runtime_delete(rt)
       result
@@ -580,10 +991,85 @@ fn bench_wasm_shared_ring_warm_wait(
 }
 
 ///|
+fn bench_os_shared_payload_cold(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  _wait_timeout_ns : UInt64,
+  _spin_limit : Int,
+) -> Result[(UInt64, UInt64, UInt64), String] {
+  bench_os_shared_payload_result(items, slots, payload_words, false)
+}
+
+///|
+fn bench_os_shared_payload_warm_result(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  _wait_timeout_ns : UInt64,
+  _spin_limit : Int,
+) -> Result[(UInt64, UInt64, UInt64), String] {
+  bench_os_shared_payload_result(items, slots, payload_words, true)
+}
+
+///|
+fn bench_wasm_shared_payload_cold(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  _wait_timeout_ns : UInt64,
+  _spin_limit : Int,
+) -> Result[(UInt64, UInt64, UInt64), String] {
+  bench_wasm_shared_payload_runtime(
+    items, slots, payload_words, false, false, 0, 0,
+  )
+}
+
+///|
+fn bench_wasm_shared_payload_warm_result(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  _wait_timeout_ns : UInt64,
+  _spin_limit : Int,
+) -> Result[(UInt64, UInt64, UInt64), String] {
+  bench_wasm_shared_payload_runtime(
+    items, slots, payload_words, true, false, 0, 0,
+  )
+}
+
+///|
+fn bench_wasm_shared_payload_cold_wait(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  wait_timeout_ns : UInt64,
+  spin_limit : Int,
+) -> Result[(UInt64, UInt64, UInt64), String] {
+  bench_wasm_shared_payload_runtime(
+    items, slots, payload_words, false, true, wait_timeout_ns, spin_limit,
+  )
+}
+
+///|
+fn bench_wasm_shared_payload_warm_wait(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  wait_timeout_ns : UInt64,
+  spin_limit : Int,
+) -> Result[(UInt64, UInt64, UInt64), String] {
+  bench_wasm_shared_payload_runtime(
+    items, slots, payload_words, true, true, wait_timeout_ns, spin_limit,
+  )
+}
+
+///|
 fn bench_case(
   label : String,
   items : Int,
   slots : Int,
+  payload_bytes : Int,
   wait_timeout_ns : UInt64,
   spin_limit : Int,
   f : (Int, Int, UInt64, Int) -> Result[(UInt64, UInt64, UInt64), String],
@@ -601,7 +1087,43 @@ fn bench_case(
       }
       if csv {
         println(
-          "\{label},\{items},\{slots},\{elapsed},\{per_ps},\{prod_spins_value},\{cons_spins_value}",
+          "\{label},\{items},\{slots},\{payload_bytes},\{elapsed},\{per_ps},\{prod_spins_value},\{cons_spins_value}",
+        )
+      }
+      true
+    }
+    Err(msg) => {
+      println("\{label}: error: \{msg}")
+      false
+    }
+  }
+}
+
+///|
+fn bench_case_payload(
+  label : String,
+  items : Int,
+  slots : Int,
+  payload_bytes : Int,
+  payload_words : Int,
+  wait_timeout_ns : UInt64,
+  spin_limit : Int,
+  f : (Int, Int, Int, UInt64, Int) -> Result[(UInt64, UInt64, UInt64), String],
+  csv : Bool,
+  csv_only : Bool,
+) -> Bool {
+  match f(items, slots, payload_words, wait_timeout_ns, spin_limit) {
+    Ok((elapsed, prod_spins_value, cons_spins_value)) => {
+      let total_ops = Int::to_uint64(items) * Int::to_uint64(payload_words)
+      let per_ps = if total_ops > 0 { elapsed * 1000 / total_ops } else { 0 }
+      if not(csv_only) {
+        println(
+          "\{label}: total=\{elapsed} ns, per=\{per_ps} ps (items=\{items}, slots=\{slots}, payload_words=\{payload_words}, prod_spins=\{prod_spins_value}, cons_spins=\{cons_spins_value})",
+        )
+      }
+      if csv {
+        println(
+          "\{label},\{items},\{slots},\{payload_bytes},\{elapsed},\{per_ps},\{prod_spins_value},\{cons_spins_value}",
         )
       }
       true
@@ -631,25 +1153,25 @@ fn run_once(
   }
   if not(
       bench_case(
-        "os_ring_cold", items, slots, 0, 0, bench_os_shared_ring_cold, csv, csv_only,
+        "os_ring_cold", items, slots, 0, 0, 0, bench_os_shared_ring_cold, csv, csv_only,
       ),
     ) {
     return false
   }
   if not(
       bench_case(
-        "os_ring_warm", items, slots, 0, 0, bench_os_shared_ring_warm_result, csv,
-        csv_only,
+        "os_ring_warm", items, slots, 0, 0, 0, bench_os_shared_ring_warm_result,
+        csv, csv_only,
       ),
     ) {
     return false
   }
   let _ = bench_case(
-    "wasm_ring_cold", items, slots, 0, 0, bench_wasm_shared_ring_cold, csv, csv_only,
+    "wasm_ring_cold", items, slots, 0, 0, 0, bench_wasm_shared_ring_cold, csv, csv_only,
   )
   let _ = bench_case(
-    "wasm_ring_warm", items, slots, 0, 0, bench_wasm_shared_ring_warm_result, csv,
-    csv_only,
+    "wasm_ring_warm", items, slots, 0, 0, 0, bench_wasm_shared_ring_warm_result,
+    csv, csv_only,
   )
   if wasm_wait {
     let wait_list = if wait_timeout_list.length() > 0 {
@@ -678,6 +1200,7 @@ fn run_once(
           "wasm_ring_cold_\{wait_mode}_\{us}us",
           items,
           slots,
+          0,
           wait_ns,
           spin_limit,
           bench_wasm_shared_ring_cold_wait,
@@ -688,9 +1211,140 @@ fn run_once(
           "wasm_ring_warm_\{wait_mode}_\{us}us",
           items,
           slots,
+          0,
           wait_ns,
           spin_limit,
           bench_wasm_shared_ring_warm_wait,
+          csv,
+          csv_only,
+        )
+
+      }
+    }
+  }
+  true
+}
+
+///|
+fn run_payload_once(
+  items : Int,
+  slots : Int,
+  payload_words : Int,
+  payload_bytes : Int,
+  csv : Bool,
+  csv_only : Bool,
+  wasm_wait : Bool,
+  wait_timeout_us : Int,
+  wait_timeout_list : Array[Int],
+  wait_mode : String,
+  wait_spin : Int,
+  wait_timeout_auto : Bool,
+) -> Bool {
+  if not(csv_only) {
+    println(
+      "bench_threads: payload (items=\{items}, slots=\{slots}, payload_bytes=\{payload_bytes}, threads=2)",
+    )
+  }
+  if not(
+      bench_case_payload(
+        "os_payload_cold_\{payload_bytes}b",
+        items,
+        slots,
+        payload_bytes,
+        payload_words,
+        0,
+        0,
+        bench_os_shared_payload_cold,
+        csv,
+        csv_only,
+      ),
+    ) {
+    return false
+  }
+  if not(
+      bench_case_payload(
+        "os_payload_warm_\{payload_bytes}b",
+        items,
+        slots,
+        payload_bytes,
+        payload_words,
+        0,
+        0,
+        bench_os_shared_payload_warm_result,
+        csv,
+        csv_only,
+      ),
+    ) {
+    return false
+  }
+  let _ = bench_case_payload(
+    "wasm_payload_cold_\{payload_bytes}b",
+    items,
+    slots,
+    payload_bytes,
+    payload_words,
+    0,
+    0,
+    bench_wasm_shared_payload_cold,
+    csv,
+    csv_only,
+  )
+  let _ = bench_case_payload(
+    "wasm_payload_warm_\{payload_bytes}b",
+    items,
+    slots,
+    payload_bytes,
+    payload_words,
+    0,
+    0,
+    bench_wasm_shared_payload_warm_result,
+    csv,
+    csv_only,
+  )
+  if wasm_wait {
+    let wait_list = if wait_timeout_list.length() > 0 {
+      wait_timeout_list
+    } else if wait_timeout_auto {
+      match default_wait_timeout_us(slots) {
+        Some(v) => [v]
+        None => Array::new()
+      }
+    } else {
+      [wait_timeout_us]
+    }
+    if wait_list.length() > 0 {
+      for us in wait_list {
+        let wait_ns = wait_timeout_ns_from_us(us)
+        let spin_limit = if wait_mode == "hybrid" {
+          if wait_spin < 0 {
+            0
+          } else {
+            wait_spin
+          }
+        } else {
+          0
+        }
+        let _ = bench_case_payload(
+          "wasm_payload_cold_\{payload_bytes}b_\{wait_mode}_\{us}us",
+          items,
+          slots,
+          payload_bytes,
+          payload_words,
+          wait_ns,
+          spin_limit,
+          bench_wasm_shared_payload_cold_wait,
+          csv,
+          csv_only,
+        )
+        let _ = bench_case_payload(
+          "wasm_payload_warm_\{payload_bytes}b_\{wait_mode}_\{us}us",
+          items,
+          slots,
+          payload_bytes,
+          payload_words,
+          wait_ns,
+          spin_limit,
+          bench_wasm_shared_payload_warm_wait,
           csv,
           csv_only,
         )
@@ -717,6 +1371,10 @@ fn main {
     None => 1024
   }
   let sweep = has_flag(args, "--sweep")
+  let payload_bytes = match arg_value(args, "--payload-bytes") {
+    Some(v) => parse_int_value(v, 0)
+    None => 0
+  }
   let wait_timeout_us = match arg_value(args, "--wait-timeout-us") {
     Some(v) => parse_int_value(v, 1000)
     None => 1000
@@ -741,6 +1399,7 @@ fn main {
     wait_mode != "wait"
   let csv_only = has_flag(args, "--csv-only")
   let csv = csv_only || has_flag(args, "--csv")
+  let payload_words = payload_words_from_bytes(payload_bytes)
   let slots_list = match arg_value(args, "--slots-list") {
     Some(v) => {
       let parsed = parse_slots_list(v)
@@ -753,11 +1412,22 @@ fn main {
     None => default_sweep_slots()
   }
   if csv {
-    println("label,items,slots,elapsed_ns,per_ps,prod_spins,cons_spins")
+    println(
+      "label,items,slots,payload_bytes,elapsed_ns,per_ps,prod_spins,cons_spins",
+    )
   }
   if sweep {
     for slot in slots_list {
-      if not(
+      if payload_words > 0 {
+        if not(
+            run_payload_once(
+              items, slot, payload_words, payload_bytes, csv, csv_only, wasm_wait,
+              wait_timeout_us, wait_timeout_list, wait_mode, wait_spin, wait_timeout_auto,
+            ),
+          ) {
+          return
+        }
+      } else if not(
           run_once(
             items, slot, csv, csv_only, wasm_wait, wait_timeout_us, wait_timeout_list,
             wait_mode, wait_spin, wait_timeout_auto,
@@ -767,10 +1437,17 @@ fn main {
       }
     }
   } else {
-    let _ = run_once(
-      items, slots, csv, csv_only, wasm_wait, wait_timeout_us, wait_timeout_list,
-      wait_mode, wait_spin, wait_timeout_auto,
-    )
+    let _ = if payload_words > 0 {
+      run_payload_once(
+        items, slots, payload_words, payload_bytes, csv, csv_only, wasm_wait, wait_timeout_us,
+        wait_timeout_list, wait_mode, wait_spin, wait_timeout_auto,
+      )
+    } else {
+      run_once(
+        items, slots, csv, csv_only, wasm_wait, wait_timeout_us, wait_timeout_list,
+        wait_mode, wait_spin, wait_timeout_auto,
+      )
+    }
 
   }
 }
