@@ -1,0 +1,332 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/wasmtime"
+
+// Values
+pub const OPT_LEVEL_NONE : Int = 0
+
+pub const OPT_LEVEL_SPEED : Int = 1
+
+pub const OPT_LEVEL_SPEED_AND_SIZE : Int = 2
+
+pub const PROFILING_STRATEGY_JITDUMP : Int = 1
+
+pub const PROFILING_STRATEGY_NONE : Int = 0
+
+pub const PROFILING_STRATEGY_PERFMAP : Int = 3
+
+pub const PROFILING_STRATEGY_VTUNE : Int = 2
+
+pub const STRATEGY_AUTO : Int = 0
+
+pub const STRATEGY_CRANELIFT : Int = 1
+
+pub const VALKIND_EXTERNREF : Int = 128
+
+pub const VALKIND_F32 : Int = 2
+
+pub const VALKIND_F64 : Int = 3
+
+pub const VALKIND_FUNCREF : Int = 129
+
+pub const VALKIND_I32 : Int = 0
+
+pub const VALKIND_I64 : Int = 1
+
+pub fn async_context_delete(Engine, WasmtimeStore) -> Unit
+
+pub fn async_context_new(UInt64) -> (Engine, WasmtimeStore, Context)
+
+pub fn call_future_delete(CallFuture) -> Unit
+
+pub fn call_future_poll(CallFuture) -> Bool
+
+pub fn clock_now_ns() -> UInt64
+
+pub fn config_async_stack_size_set(Config, UInt64) -> Unit
+
+pub fn config_cache_config_load(Config, String) -> WasmtimeError
+
+pub fn config_cache_config_load_bytes(Config, Bytes, Int) -> WasmtimeError
+
+pub fn config_cache_config_load_default(Config) -> WasmtimeError
+
+pub fn config_consume_fuel_set(Config, Bool) -> Unit
+
+pub fn config_cranelift_debug_verifier_set(Config, Bool) -> Unit
+
+pub fn config_cranelift_flag_enable(Config, String) -> Unit
+
+pub fn config_cranelift_flag_enable_bytes(Config, Bytes, Int) -> Unit
+
+pub fn config_cranelift_flag_set(Config, String, String) -> Unit
+
+pub fn config_cranelift_flag_set_bytes(Config, Bytes, Int, Bytes, Int) -> Unit
+
+pub fn config_cranelift_nan_canonicalization_set(Config, Bool) -> Unit
+
+pub fn config_cranelift_opt_level_set(Config, Int) -> Unit
+
+pub fn config_debug_info_set(Config, Bool) -> Unit
+
+pub fn config_delete(Config) -> Unit
+
+pub fn config_epoch_interruption_set(Config, Bool) -> Unit
+
+pub fn config_host_stack_creator_set_bytes(Config, Bytes) -> Unit
+
+pub fn config_macos_use_mach_ports_set(Config, Bool) -> Unit
+
+pub fn config_max_wasm_stack_set(Config, UInt64) -> Unit
+
+pub fn config_memory_guard_size_set(Config, UInt64) -> Unit
+
+pub fn config_memory_may_move_set(Config, Bool) -> Unit
+
+pub fn config_memory_reservation_for_growth_set(Config, UInt64) -> Unit
+
+pub fn config_memory_reservation_set(Config, UInt64) -> Unit
+
+pub fn config_native_unwind_info_set(Config, Bool) -> Unit
+
+pub fn config_new() -> Config
+
+pub fn config_parallel_compilation_set(Config, Bool) -> Unit
+
+pub fn config_profiler_set(Config, Int) -> Unit
+
+pub fn config_shared_memory_set(Config, Bool) -> Unit
+
+pub fn config_signals_based_traps_set(Config, Bool) -> Unit
+
+pub fn config_strategy_set(Config, Int) -> Unit
+
+pub fn config_target_set(Config, String) -> WasmtimeError
+
+pub fn config_target_set_bytes(Config, Bytes, Int) -> WasmtimeError
+
+pub fn config_wasm_bulk_memory_set(Config, Bool) -> Unit
+
+pub fn config_wasm_custom_page_sizes_set(Config, Bool) -> Unit
+
+pub fn config_wasm_exceptions_set(Config, Bool) -> Unit
+
+pub fn config_wasm_function_references_set(Config, Bool) -> Unit
+
+pub fn config_wasm_gc_set(Config, Bool) -> Unit
+
+pub fn config_wasm_memory64_set(Config, Bool) -> Unit
+
+pub fn config_wasm_multi_memory_set(Config, Bool) -> Unit
+
+pub fn config_wasm_multi_value_set(Config, Bool) -> Unit
+
+pub fn config_wasm_reference_types_set(Config, Bool) -> Unit
+
+pub fn config_wasm_relaxed_simd_deterministic_set(Config, Bool) -> Unit
+
+pub fn config_wasm_relaxed_simd_set(Config, Bool) -> Unit
+
+pub fn config_wasm_simd_set(Config, Bool) -> Unit
+
+pub fn config_wasm_stack_switching_set(Config, Bool) -> Unit
+
+pub fn config_wasm_tail_call_set(Config, Bool) -> Unit
+
+pub fn config_wasm_threads_set(Config, Bool) -> Unit
+
+pub fn config_wasm_wide_arithmetic_set(Config, Bool) -> Unit
+
+pub fn context_epoch_deadline_async_yield_and_update(Context, UInt64) -> WasmtimeError
+
+pub fn context_fuel_async_yield_interval(Context, UInt64) -> WasmtimeError
+
+pub fn engine_delete(Engine) -> Unit
+
+pub fn engine_new() -> Engine
+
+pub fn engine_new_with_config(Config) -> Engine
+
+pub fn error_delete(WasmtimeError) -> Unit
+
+pub fn error_delete_ptr(Bytes) -> Unit
+
+pub fn error_delete_ptr_buffer(Bytes) -> Unit
+
+pub fn error_is_null(WasmtimeError) -> Bool
+
+pub fn func_buffer_new_with_ptr(Context, FuncType, UInt64, UInt64, UInt64) -> Bytes
+
+pub fn func_call_async(Context, Bytes, Bytes, Bytes, Bytes, Bytes) -> CallFuture raise
+
+pub fn func_call_async_bytes(Context, Bytes, Bytes, Int, Bytes, Int, Bytes, Bytes) -> CallFuture
+
+pub fn func_call_async_result(Context, Bytes, Bytes, Bytes, Bytes, Bytes) -> Result[CallFuture, Error]
+
+pub fn func_call_async_result_autoclean(Context, Bytes, Bytes, Bytes, Bytes, Bytes) -> Result[CallFuture, Error]
+
+pub fn func_new_ptr_bytes(Context, FuncType, UInt64, UInt64, UInt64, Bytes) -> Unit
+
+pub fn func_noop_callback_ptr() -> UInt64
+
+pub fn func_sizeof() -> Int
+
+pub fn functype_delete(FuncType) -> Unit
+
+pub fn functype_is_null(FuncType) -> Bool
+
+pub fn functype_new_from_kinds(Bytes, Int, Bytes, Int) -> FuncType
+
+pub fn functype_new_from_valkinds(Bytes, Bytes) -> FuncType
+
+pub fn functype_new_from_valkinds_or_raise(Bytes, Bytes) -> FuncType raise
+
+pub fn functype_new_from_valkinds_result(Bytes, Bytes) -> Result[FuncType, Error]
+
+pub fn instance_pre_instantiate_async_bytes(InstancePre, Context, Bytes, Bytes, Bytes) -> CallFuture
+
+pub fn instance_sizeof() -> Int
+
+pub fn linker_define_async_func_ptr(Linker, Bytes, Int, Bytes, Int, FuncType, UInt64, UInt64, UInt64) -> WasmtimeError
+
+pub fn linker_instantiate_async_bytes(Linker, Context, Module, Bytes, Bytes, Bytes) -> CallFuture
+
+pub fn make_func_buffer() -> Bytes
+
+pub fn make_instance_buffer() -> Bytes
+
+pub fn make_ptr_buffer() -> Bytes
+
+pub fn make_stack_creator_buffer() -> Bytes
+
+pub fn make_val_buffer(Int) -> Bytes
+
+pub fn noop_callback_ptr() -> UInt64
+
+pub fn ptr_buffer_clear(Bytes) -> Unit
+
+pub fn ptr_buffer_is_null(Bytes) -> Bool
+
+pub fn ptr_buffer_read_u64(Bytes) -> UInt64
+
+pub fn ptr_clear(Bytes) -> Unit
+
+pub fn ptr_is_null(Bytes) -> Bool
+
+pub fn ptr_read_u64(Bytes) -> UInt64
+
+pub fn ptr_sizeof() -> Int
+
+pub fn stack_creator_sizeof() -> Int
+
+pub fn store_delete(Store) -> Unit
+
+pub fn store_new(Engine) -> Store
+
+pub fn trap_delete_ptr(Bytes) -> Unit
+
+pub fn trap_delete_ptr_buffer(Bytes) -> Unit
+
+pub fn val_buffer_count(Bytes) -> Int
+
+pub fn val_buffer_count_or_raise(Bytes) -> Int raise
+
+pub fn val_buffer_count_result(Bytes) -> Result[Int, Error]
+
+pub fn val_buffer_get_f32(Bytes, Int) -> Float
+
+pub fn val_buffer_get_f64(Bytes, Int) -> Double
+
+pub fn val_buffer_get_i32(Bytes, Int) -> Int
+
+pub fn val_buffer_get_i64(Bytes, Int) -> Int64
+
+pub fn val_buffer_set_f32(Bytes, Int, Float) -> Unit
+
+pub fn val_buffer_set_f64(Bytes, Int, Double) -> Unit
+
+pub fn val_buffer_set_i32(Bytes, Int, Int) -> Unit
+
+pub fn val_buffer_set_i64(Bytes, Int, Int64) -> Unit
+
+pub fn val_buffer_unroot_at(Bytes, Int) -> Unit
+
+pub fn val_get_f32_at(Bytes, Int) -> Float
+
+pub fn val_get_f64_at(Bytes, Int) -> Double
+
+pub fn val_get_i32_at(Bytes, Int) -> Int
+
+pub fn val_get_i64_at(Bytes, Int) -> Int64
+
+pub fn val_kind_at(Bytes, Int) -> Int
+
+pub fn val_set_f32_at(Bytes, Int, Float) -> Unit
+
+pub fn val_set_f64_at(Bytes, Int, Double) -> Unit
+
+pub fn val_set_i32_at(Bytes, Int, Int) -> Unit
+
+pub fn val_set_i64_at(Bytes, Int, Int64) -> Unit
+
+pub fn val_sizeof() -> Int
+
+pub fn val_unroot_at(Bytes, Int) -> Unit
+
+pub fn version() -> String
+
+pub fn wasmtime_store_context(WasmtimeStore) -> Context
+
+pub fn wasmtime_store_delete(WasmtimeStore) -> Unit
+
+pub fn wasmtime_store_new(Engine) -> WasmtimeStore
+
+// Errors
+
+// Types and methods
+#external
+pub type CallFuture
+
+#external
+pub type Config
+
+#external
+pub type Context
+
+#external
+pub type Engine
+
+#external
+pub type FuncType
+
+#external
+pub type InstancePre
+
+#external
+pub type Linker
+
+#external
+pub type Module
+
+#external
+pub type Store
+
+#external
+pub type Trap
+
+#external
+pub type WasmtimeError
+
+#external
+pub type WasmtimeStore
+
+// Type aliases
+pub type OptLevel = Int
+
+pub type ProfilingStrategy = Int
+
+pub type Strategy = Int
+
+pub type ValKind = Int
+
+// Traits
+

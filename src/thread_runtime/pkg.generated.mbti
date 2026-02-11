@@ -1,0 +1,94 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/wasmtime/thread_runtime"
+
+// Values
+pub const WASI_DIR_PERMS_READ : Int = 1
+
+pub const WASI_DIR_PERMS_WRITE : Int = 2
+
+pub const WASI_FILE_PERMS_READ : Int = 1
+
+pub const WASI_FILE_PERMS_WRITE : Int = 2
+
+pub fn shared_pages_for_bytes(UInt64) -> UInt64
+
+pub fn thread_runtime_delete(ThreadRuntime) -> Unit
+
+pub fn thread_runtime_detach(ThreadHandle) -> Result[Unit, Error]
+
+pub fn thread_runtime_join(ThreadHandle) -> Result[Unit, Error]
+
+pub fn thread_runtime_mem_read(ThreadRuntime, UInt64, Int) -> Result[Bytes, Error]
+
+pub fn thread_runtime_mem_write(ThreadRuntime, UInt64, Bytes) -> Result[Unit, Error]
+
+pub fn thread_runtime_new(Int) -> Result[ThreadRuntime, Error]
+
+pub fn thread_runtime_precompile_cwasm(ThreadRuntime, Bytes) -> Result[Bytes, Error]
+
+pub fn thread_runtime_spawn_cwasm(ThreadRuntime, Bytes, String, Bytes) -> Result[ThreadHandle, Error]
+
+pub fn thread_runtime_spawn_cwasm_repeat(ThreadRuntime, Bytes, String, Bytes, Int) -> Result[ThreadHandle, Error]
+
+pub fn thread_runtime_spawn_wasm(ThreadRuntime, Bytes, String, Bytes) -> Result[ThreadHandle, Error]
+
+pub fn thread_runtime_spawn_wasm_repeat(ThreadRuntime, Bytes, String, Bytes, Int) -> Result[ThreadHandle, Error]
+
+pub fn thread_runtime_spawn_wat(ThreadRuntime, String, String, Bytes) -> Result[ThreadHandle, Error]
+
+pub fn thread_runtime_try_join(ThreadHandle) -> Result[Bool, Error]
+
+pub fn thread_runtime_wasi_inherit_argv(ThreadRuntime) -> Result[Unit, Error]
+
+pub fn thread_runtime_wasi_inherit_stdio(ThreadRuntime) -> Result[Unit, Error]
+
+pub fn thread_runtime_wasi_preopen_dir(ThreadRuntime, String, guest_path? : String, dir_perms? : Int, file_perms? : Int) -> Result[Unit, Error]
+
+pub fn thread_runtime_wasi_set_argv(ThreadRuntime, Array[String]) -> Result[Unit, Error]
+
+// Errors
+
+// Types and methods
+pub struct JoinSet {
+  handles : Array[ThreadHandle]
+}
+pub fn JoinSet::is_empty(Self) -> Bool
+pub fn JoinSet::join_all(Self) -> Result[Unit, Error]
+pub fn JoinSet::len(Self) -> Int
+pub fn JoinSet::new() -> Self
+pub fn JoinSet::push(Self, ThreadHandle) -> Unit
+pub fn JoinSet::try_join_next(Self) -> Result[Bool, Error]
+
+#alias(JoinHandle)
+pub struct ThreadHandle {
+  handle : UInt64
+}
+pub fn ThreadHandle::detach(Self) -> Result[Unit, Error]
+pub fn ThreadHandle::join(Self) -> Result[Unit, Error]
+pub fn ThreadHandle::try_join(Self) -> Result[Bool, Error]
+
+pub struct ThreadRuntime {
+  handle : UInt64
+}
+pub fn ThreadRuntime::delete(Self) -> Unit
+pub fn ThreadRuntime::mem_read(Self, UInt64, Int) -> Result[Bytes, Error]
+pub fn ThreadRuntime::mem_write(Self, UInt64, Bytes) -> Result[Unit, Error]
+pub fn ThreadRuntime::new(Int) -> Result[Self, Error]
+pub fn ThreadRuntime::precompile_cwasm(Self, Bytes) -> Result[Bytes, Error]
+pub fn ThreadRuntime::spawn_cwasm(Self, Bytes, String, Bytes) -> Result[ThreadHandle, Error]
+pub fn ThreadRuntime::spawn_cwasm_repeat(Self, Bytes, String, Bytes, Int) -> Result[ThreadHandle, Error]
+pub fn ThreadRuntime::spawn_wasm(Self, Bytes, String, Bytes) -> Result[ThreadHandle, Error]
+pub fn ThreadRuntime::spawn_wasm_repeat(Self, Bytes, String, Bytes, Int) -> Result[ThreadHandle, Error]
+pub fn ThreadRuntime::spawn_wat(Self, String, String, Bytes) -> Result[ThreadHandle, Error]
+pub fn ThreadRuntime::wasi_inherit_argv(Self) -> Result[Unit, Error]
+pub fn ThreadRuntime::wasi_inherit_stdio(Self) -> Result[Unit, Error]
+pub fn ThreadRuntime::wasi_preopen_dir(Self, String, guest_path? : String, dir_perms? : Int, file_perms? : Int) -> Result[Unit, Error]
+pub fn ThreadRuntime::wasi_set_argv(Self, Array[String]) -> Result[Unit, Error]
+
+// Type aliases
+pub type WasiDirPerms = Int
+
+pub type WasiFilePerms = Int
+
+// Traits
+
