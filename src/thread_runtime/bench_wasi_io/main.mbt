@@ -30,7 +30,9 @@ fn print_help() -> Unit {
 
 ///|
 fn parse_int_or(value : String, fallback : Int) -> Int {
-  @strconv.parse_int(value) catch { _ => fallback }
+  @strconv.parse_int(value) catch {
+    _ => fallback
+  }
 }
 
 ///|
@@ -120,11 +122,7 @@ fn parse_args() -> Options? {
 
 ///|
 let ignore_dirs : Array[String] = [
-  ".mooncakes",
-  ".git",
-  "_build",
-  "target",
-  "node_modules",
+  ".mooncakes", ".git", "_build", "target", "node_modules",
 ]
 
 ///|
@@ -176,7 +174,9 @@ fn ensure_dist_dir() -> Result[String, Error] {
     Some(root) => {
       let dist = join_path(root, "dist")
       if not(@fs.path_exists(dist)) {
-        @fs.create_dir(dist) catch { err => return Err(err) }
+        @fs.create_dir(dist) catch {
+          err => return Err(err)
+        }
       }
       Ok(dist)
     }
@@ -235,7 +235,9 @@ fn build_worklist(host_dir : String, limit : Int) -> Result[Unit, Error] {
   }
   let content = files.join("\n") + "\n"
   let path = join_path(host_dir, worklist_file)
-  @fs.write_string_to_file(path, content) catch { err => return Err(err) }
+  @fs.write_string_to_file(path, content) catch {
+    err => return Err(err)
+  }
   Ok(())
 }
 
@@ -265,16 +267,12 @@ fn spawn_all(
       } else {
         rt.spawn_cwasm_repeat(payload, entry, args, inner_repeat)
       }
+    } else if inner_repeat == 1 {
+      rt.spawn_wasm(payload, entry, args)
     } else {
-      if inner_repeat == 1 {
-        rt.spawn_wasm(payload, entry, args)
-      } else {
-        rt.spawn_wasm_repeat(payload, entry, args, inner_repeat)
-      }
+      rt.spawn_wasm_repeat(payload, entry, args, inner_repeat)
     }
-    guard res is Ok(handle) else {
-      return Err(res.unwrap_err())
-    }
+    guard res is Ok(handle) else { return Err(res.unwrap_err()) }
     join_set.push(handle)
   }
   Ok(join_set)
@@ -290,14 +288,14 @@ fn run_once(
   use_cwasm : Bool,
 ) -> Result[UInt64, Error] {
   let start = @wasmtime.clock_now_ns()
-  let join_set_res = spawn_all(rt, payload, entry, threads, inner_repeat, use_cwasm)
+  let join_set_res = spawn_all(
+    rt, payload, entry, threads, inner_repeat, use_cwasm,
+  )
   guard join_set_res is Ok(join_set) else {
     return Err(join_set_res.unwrap_err())
   }
   let join_res = join_set.join_all()
-  guard join_res is Ok(_) else {
-    return Err(join_res.unwrap_err())
-  }
+  guard join_res is Ok(_) else { return Err(join_res.unwrap_err()) }
   let end = @wasmtime.clock_now_ns()
   Ok(end - start)
 }
@@ -322,15 +320,11 @@ fn run_repeat(
   let mut total : UInt64 = 0
   for _ in 0..<warmup {
     let res = run_once(rt, payload, entry, threads, inner_repeat, use_cwasm)
-    guard res is Ok(_) else {
-      return Err(res.unwrap_err())
-    }
+    guard res is Ok(_) else { return Err(res.unwrap_err()) }
   }
   for _ in 0..<repeat {
     let res = run_once(rt, payload, entry, threads, inner_repeat, use_cwasm)
-    guard res is Ok(elapsed) else {
-      return Err(res.unwrap_err())
-    }
+    guard res is Ok(elapsed) else { return Err(res.unwrap_err()) }
     total = total + elapsed
   }
   Ok(total)
@@ -340,61 +334,67 @@ fn run_repeat(
 fn main {
   let opts = parse_args()
   guard opts is Some(options) else { return }
-  let result : Result[UInt64, Error] =
-    try @fs.read_file_to_bytes(options.wasm_path) catch {
-      err => Err(err)
-    } noraise {
-      wasm => {
-        @thread_runtime.ThreadRuntime::new(1).bind(rt => {
-          let precompiled =
-            if options.use_cwasm {
-              rt.precompile_cwasm(wasm).bind(cwasm => {
-                cwasm_output_path(options.wasm_path).bind(path => {
-                  @fs.write_bytes_to_file(path, cwasm) catch { err => return Err(err) }
-                  Ok(cwasm)
-                })
-              })
-            } else {
-              Ok(wasm)
-            }
-          let outcome =
-            precompiled.bind(payload => {
-              build_worklist(options.host_dir, options.file_limit)
-              .bind(_ =>
-                if options.inherit_stdio {
-                  rt.wasi_inherit_stdio()
-                } else {
-                  Ok(())
-                }
-              )
-              .bind(_ => rt.wasi_preopen_dir(options.host_dir))
-              .bind(_ =>
-                run_repeat(
-                  rt,
-                  payload,
-                  options.entry,
-                  options.threads,
-                  options.repeat,
-                  options.warmup,
-                  options.inner_repeat,
-                  options.use_cwasm,
-                )
-              )
+  let result : Result[UInt64, Error] = try
+    @fs.read_file_to_bytes(options.wasm_path)
+  catch {
+    err => Err(err)
+  } noraise {
+    wasm =>
+      @thread_runtime.ThreadRuntime::new(1).bind(rt => {
+        let precompiled = if options.use_cwasm {
+          rt
+          .precompile_cwasm(wasm)
+          .bind(cwasm => {
+            cwasm_output_path(options.wasm_path).bind(path => {
+              @fs.write_bytes_to_file(path, cwasm) catch {
+                err => return Err(err)
+              }
+              Ok(cwasm)
             })
-          rt.delete()
-          outcome
+          })
+        } else {
+          Ok(wasm)
+        }
+        let outcome = precompiled.bind(payload => {
+          build_worklist(options.host_dir, options.file_limit)
+          .bind(_ => {
+            if options.inherit_stdio {
+              rt.wasi_inherit_stdio()
+            } else {
+              Ok(())
+            }
+          })
+          .bind(_ => rt.wasi_preopen_dir(options.host_dir))
+          .bind(_ => {
+            run_repeat(
+              rt,
+              payload,
+              options.entry,
+              options.threads,
+              options.repeat,
+              options.warmup,
+              options.inner_repeat,
+              options.use_cwasm,
+            )
+          })
         })
-      }
-    }
+        rt.delete()
+        outcome
+      })
+  }
   match result {
     Ok(total_ns) => {
       let batch_den = Int::to_uint64(options.repeat)
       let batch_avg = total_ns / batch_den
-      let inner = if options.inner_repeat <= 0 { 1 } else { options.inner_repeat }
+      let inner = if options.inner_repeat <= 0 {
+        1
+      } else {
+        options.inner_repeat
+      }
       let iter_den = Int::to_uint64(options.repeat * inner)
       let iter_avg = total_ns / iter_den
       println(
-        "wasi io: avg_batch_ns=\{batch_avg} avg_iter_ns=\{iter_avg} threads=\{options.threads} repeat=\{options.repeat} inner_repeat=\{options.inner_repeat} warmup=\{options.warmup} cwasm=\{options.use_cwasm}"
+        "wasi io: avg_batch_ns=\{batch_avg} avg_iter_ns=\{iter_avg} threads=\{options.threads} repeat=\{options.repeat} inner_repeat=\{options.inner_repeat} warmup=\{options.warmup} cwasm=\{options.use_cwasm}",
       )
     }
     Err(err) => println("wasi io failed: \{err}")
