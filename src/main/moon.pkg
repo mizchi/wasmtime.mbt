@@ -1,12 +1,10 @@
 import {
-  "mizchi/wasmtime" as @wasmtime,
+  "mizchi/wasmtime" @wasmtime,
 }
 
 options(
   "is-main": true,
   link: {
-    "native": {
-      "cc-link-flags": "-Ldeps/wasmtime/target/release -lwasmtime"
-    }
+    "native": { "cc-link-flags": "-Ldeps/wasmtime/target/release -lwasmtime" },
   },
 )

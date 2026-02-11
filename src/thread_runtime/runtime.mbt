@@ -69,6 +69,7 @@ extern "C" fn thread_runtime_spawn_wasm_native(
   args_len : Int,
   error_out : Bytes,
 ) -> UInt64 = "wasmtime_thread_runtime_spawn_wasm"
+
 ///|
 #borrow(wasm, error_out)
 extern "C" fn thread_runtime_precompile_cwasm_native(
@@ -77,6 +78,7 @@ extern "C" fn thread_runtime_precompile_cwasm_native(
   wasm_len : Int,
   error_out : Bytes,
 ) -> Bytes = "wasmtime_thread_runtime_precompile_cwasm"
+
 ///|
 #borrow(cwasm, entry, args, error_out)
 extern "C" fn thread_runtime_spawn_cwasm_native(
@@ -89,6 +91,7 @@ extern "C" fn thread_runtime_spawn_cwasm_native(
   args_len : Int,
   error_out : Bytes,
 ) -> UInt64 = "wasmtime_thread_runtime_spawn_cwasm"
+
 ///|
 #borrow(cwasm, entry, args, error_out)
 extern "C" fn thread_runtime_spawn_cwasm_repeat_native(
@@ -102,6 +105,7 @@ extern "C" fn thread_runtime_spawn_cwasm_repeat_native(
   repeat : Int,
   error_out : Bytes,
 ) -> UInt64 = "wasmtime_thread_runtime_spawn_cwasm_repeat"
+
 ///|
 #borrow(wasm, entry, args, error_out)
 extern "C" fn thread_runtime_spawn_wasm_repeat_native(

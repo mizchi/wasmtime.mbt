@@ -174,9 +174,7 @@ pub fn JoinSet::push(self : JoinSet, handle : JoinHandle) -> Unit {
 pub fn JoinSet::join_all(self : JoinSet) -> Result[Unit, Error] {
   for handle in self.handles {
     let res = handle.join()
-    guard res is Ok(_) else {
-      return Err(res.unwrap_err())
-    }
+    guard res is Ok(_) else { return Err(res.unwrap_err()) }
   }
   self.handles.clear()
   Ok(())
@@ -189,12 +187,11 @@ pub fn JoinSet::try_join_next(self : JoinSet) -> Result[Bool, Error] {
   for i in 0..<len {
     let handle = self.handles[i]
     match handle.try_join() {
-      Ok(done) => {
+      Ok(done) =>
         if done {
           let _ = self.handles.remove(i)
           return Ok(true)
         }
-      }
       Err(err) => return Err(err)
     }
   }
